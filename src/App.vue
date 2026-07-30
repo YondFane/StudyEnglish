@@ -87,12 +87,19 @@ function loadMore() {
   visibleCount.value += 120
 }
 
-function speakWord() {
+function speakWord(lang) {
   if (!selectedWord.value || !('speechSynthesis' in window)) return
 
   window.speechSynthesis.cancel()
   const utterance = new SpeechSynthesisUtterance(selectedWord.value.B)
-  utterance.lang = 'en-US'
+  const voices = window.speechSynthesis.getVoices()
+  const preferredVoice = voices.find(
+    (voice) => voice.lang.toLowerCase() === lang.toLowerCase(),
+  )
+
+  utterance.lang = lang
+  utterance.rate = 0.9
+  if (preferredVoice) utterance.voice = preferredVoice
   window.speechSynthesis.speak(utterance)
 }
 
@@ -173,9 +180,26 @@ selectCategory(categories[0])
             <h2>{{ selectedWord.B }}</h2>
             <p class="phonetic">{{ selectedWord.C }}</p>
           </div>
-          <button class="sound-button" aria-label="朗读单词" title="朗读单词" @click="speakWord">
-            <span aria-hidden="true">♪</span>
-          </button>
+          <div class="sound-actions" aria-label="单词发音">
+            <button
+              class="sound-button"
+              aria-label="英式发音"
+              title="英式发音"
+              @click="speakWord('en-GB')"
+            >
+              <span aria-hidden="true">♪</span>
+              <b>英式</b>
+            </button>
+            <button
+              class="sound-button accent-us"
+              aria-label="美式发音"
+              title="美式发音"
+              @click="speakWord('en-US')"
+            >
+              <span aria-hidden="true">♪</span>
+              <b>美式</b>
+            </button>
+          </div>
         </div>
 
         <div class="meaning-card">

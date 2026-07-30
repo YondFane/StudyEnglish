@@ -164,8 +164,10 @@ h1 {
 
 .word-panel {
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   border-right: 1px solid rgba(24, 50, 45, .1);
   background: rgba(247, 246, 240, .72);
 }
@@ -182,7 +184,25 @@ h1 {
 }
 
 .panel-heading span:last-child { color: #929c98; font-size: 10px; font-weight: 500; }
-.word-list { flex: 1; overflow-y: auto; }
+.word-list {
+  min-height: 0;
+  flex: 1 1 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-color: rgba(24, 50, 45, .28) transparent;
+  scrollbar-width: thin;
+}
+
+.word-list::-webkit-scrollbar { width: 8px; }
+.word-list::-webkit-scrollbar-track { background: transparent; }
+.word-list::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 99px;
+  background: rgba(24, 50, 45, .28);
+  background-clip: padding-box;
+}
 .word-list > button {
   width: 100%;
   min-height: 64px;
@@ -248,17 +268,30 @@ h2 {
 }
 
 .phonetic { margin: 0; color: #76857f; font-size: 15px; }
+.sound-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+}
+
 .sound-button {
-  width: 46px;
-  height: 46px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 50%;
+  height: 42px;
+  padding: 0 13px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #ec6e4c;
+  border-radius: 99px;
   color: #fff;
   background: #ec6e4c;
-  font-size: 20px;
+  transition: transform .16s, background .16s;
 }
+
+.sound-button:hover { transform: translateY(-1px); background: #d95f40; }
+.sound-button span { font-size: 16px; }
+.sound-button b { font-size: 11px; font-weight: 600; }
+.sound-button.accent-us { color: #18322d; background: transparent; }
+.sound-button.accent-us:hover { color: #fff; background: #ec6e4c; }
 
 .meaning-card {
   margin: 34px 0 30px;
