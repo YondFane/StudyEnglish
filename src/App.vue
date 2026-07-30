@@ -70,7 +70,13 @@ const initialCategory = categories.find((item) => item.id === cachedState.active
 const activeCategory = ref(initialCategory)
 const words = ref([])
 const selectedWord = ref(null)
+const detailPanel = ref(null)
 const query = ref('')
+const globalSearchMode = ref(false)
+const globalSearchLoading = ref(false)
+const globalSearchResults = ref([])
+const globalSearchKeyword = ref('')
+const globalSearchError = ref('')
 const visibleCount = ref(120)
 const loading = ref(false)
 const loadError = ref('')
@@ -94,7 +100,14 @@ const wrongWords = ref([])
 const jumpNumber = ref(1)
 const progressByCategory = ref(cachedState.progressByCategory ?? {})
 const wrongWordsByCategory = ref(cachedState.wrongWordsByCategory ?? {})
+const browseNavigationArmed = ref(false)
+const browseNavigationHint = ref('')
 let cacheReady = false
+let browseNavigationTimer
+let browseNavigationCooldownUntil = 0
+let lastBrowseWheelAt = 0
+let detailTouchStartY = 0
+let detailTouchStartedAtBottom = false
 
 function saveCachedState() {
   if (!cacheReady) return
@@ -122,6 +135,8 @@ function saveCachedState() {
 }
 
 const filteredWords = computed(() => {
+  if (globalSearchMode.value) return globalSearchResults.value
+
   const keyword = query.value.trim().toLowerCase()
   if (!keyword) return words.value
 
@@ -134,6 +149,12 @@ const filteredWords = computed(() => {
 
 const visibleWords = computed(() => filteredWords.value.slice(0, visibleCount.value))
 const hasMore = computed(() => visibleCount.value < filteredWords.value.length)
+const selectedBrowseIndex = computed(() => filteredWords.value.indexOf(selectedWord.value))
+const canBrowsePrevious = computed(() => selectedBrowseIndex.value > 0)
+const canBrowseNext = computed(() =>
+  filteredWords.value.length > 0
+  && selectedBrowseIndex.value < filteredWords.value.length - 1,
+)
 const practiceCollection = computed(() =>
   wrongPracticeMode.value ? wrongWords.value : words.value,
 )
@@ -157,9 +178,24 @@ const answerSlots = computed(() =>
     }
   }),
 )
+const pendingLetterIndex = computed(() =>
+  answer.value.length < practiceAnswerTarget.value.length ? answer.value.length : -1,
+)
 
 async function selectCategory(category) {
-  if (loading.value || activeCategory.value.id === category.id && words.value.length) return
+  if (loading.value) return
+  if (activeCategory.value.id === category.id && words.value.length) {
+    if (globalSearchMode.value) {
+      globalSearchMode.value = false
+      globalSearchResults.value = []
+      globalSearchKeyword.value = ''
+      globalSearchError.value = ''
+      query.value = ''
+      visibleCount.value = 120
+      selectedWord.value = words.value[0] ?? null
+    }
+    return
+  }
 
   if (words.value.length) {
     wrongWordsByCategory.value[activeCategory.value.id] = wrongWords.value.map((item) => item.B)
@@ -170,6 +206,10 @@ async function selectCategory(category) {
   wrongPracticeCompleted.value = false
   loading.value = true
   loadError.value = ''
+  globalSearchMode.value = false
+  globalSearchResults.value = []
+  globalSearchKeyword.value = ''
+  globalSearchError.value = ''
   query.value = ''
   visibleCount.value = 120
   activeCategory.value = category
@@ -200,6 +240,58 @@ async function selectCategory(category) {
   }
 }
 
+function handleSearchInput() {
+  globalSearchError.value = ''
+  if (!globalSearchMode.value || query.value.trim() === globalSearchKeyword.value) return
+
+  globalSearchMode.value = false
+  globalSearchResults.value = []
+  globalSearchKeyword.value = ''
+  selectedWord.value = words.value[0] ?? null
+  visibleCount.value = 120
+}
+
+async function executeGlobalSearch() {
+  const keyword = query.value.trim().toLowerCase()
+  if (!keyword || globalSearchLoading.value) return
+
+  globalSearchLoading.value = true
+  globalSearchError.value = ''
+  visibleCount.value = 120
+  resetBrowseNavigation()
+
+  try {
+    const loadedCategories = await Promise.all(
+      categories.map(async (category) => ({
+        category,
+        entries: (await category.load()).default,
+      })),
+    )
+
+    globalSearchResults.value = loadedCategories.flatMap(({ category, entries }) =>
+      entries
+        .filter((item) =>
+          [item.B, item.C, item.D].some((value) =>
+            String(value ?? '').toLowerCase().includes(keyword),
+          ),
+        )
+        .map((item) => ({
+          ...item,
+          __categoryId: category.id,
+          __categoryLabel: category.label,
+        })),
+    )
+    globalSearchKeyword.value = query.value.trim()
+    globalSearchMode.value = true
+    selectedWord.value = globalSearchResults.value[0] ?? null
+  } catch (error) {
+    globalSearchError.value = '全局词库加载失败，请稍后重试。'
+    console.error(error)
+  } finally {
+    globalSearchLoading.value = false
+  }
+}
+
 async function selectPracticeCategory(category) {
   await selectCategory(category)
   if (autoRead.value) nextTick(speakPracticeWord)
@@ -207,10 +299,98 @@ async function selectPracticeCategory(category) {
 
 function selectWord(word) {
   selectedWord.value = word
+  resetBrowseNavigation()
+  nextTick(() => detailPanel.value?.scrollTo({ top: 0, behavior: 'smooth' }))
 }
 
 function loadMore() {
   visibleCount.value += 120
+}
+
+function isDetailAtBottom() {
+  const panel = detailPanel.value
+  if (!panel) return false
+  return panel.scrollHeight - panel.scrollTop - panel.clientHeight <= 4
+}
+
+function resetBrowseNavigation() {
+  window.clearTimeout(browseNavigationTimer)
+  browseNavigationArmed.value = false
+  browseNavigationHint.value = ''
+}
+
+function scrollSelectedWordIntoView() {
+  nextTick(() => {
+    document.querySelector('.word-list > button.selected')?.scrollIntoView({
+      block: 'nearest',
+      behavior: 'smooth',
+    })
+  })
+}
+
+function browseAdjacentWord(direction) {
+  const list = filteredWords.value
+  if (!list.length) return
+
+  const currentIndex = selectedBrowseIndex.value
+  const targetIndex = currentIndex < 0
+    ? 0
+    : Math.min(Math.max(currentIndex + direction, 0), list.length - 1)
+
+  if (targetIndex === currentIndex) {
+    browseNavigationHint.value = direction > 0 ? '已经是最后一个单词' : '已经是第一个单词'
+    return
+  }
+
+  visibleCount.value = Math.max(visibleCount.value, targetIndex + 1)
+  selectedWord.value = list[targetIndex]
+  browseNavigationCooldownUntil = Date.now() + 600
+  resetBrowseNavigation()
+  nextTick(() => {
+    detailPanel.value?.scrollTo({ top: 0, behavior: 'smooth' })
+    scrollSelectedWordIntoView()
+  })
+}
+
+function requestNextWordByGesture(type) {
+  if (Date.now() < browseNavigationCooldownUntil) return
+
+  if (!canBrowseNext.value) {
+    browseNavigationHint.value = '已经是最后一个单词'
+    return
+  }
+
+  if (browseNavigationArmed.value) {
+    browseAdjacentWord(1)
+    return
+  }
+
+  browseNavigationArmed.value = true
+  browseNavigationHint.value = type === 'touch'
+    ? '再上滑一次，切换到下一个单词'
+    : '再向下滚动一次，切换到下一个单词'
+  window.clearTimeout(browseNavigationTimer)
+  browseNavigationTimer = window.setTimeout(resetBrowseNavigation, 1200)
+}
+
+function handleDetailWheel(event) {
+  if (event.deltaY <= 12 || !isDetailAtBottom()) return
+
+  const now = Date.now()
+  const beginsNewWheelGesture = now - lastBrowseWheelAt > 160
+  lastBrowseWheelAt = now
+  if (beginsNewWheelGesture) requestNextWordByGesture('wheel')
+}
+
+function handleDetailTouchStart(event) {
+  detailTouchStartY = event.touches[0]?.clientY ?? 0
+  detailTouchStartedAtBottom = isDetailAtBottom()
+}
+
+function handleDetailTouchEnd(event) {
+  if (!detailTouchStartedAtBottom) return
+  const endY = event.changedTouches[0]?.clientY ?? detailTouchStartY
+  if (detailTouchStartY - endY >= 55) requestNextWordByGesture('touch')
 }
 
 function speakText(text, lang = accent.value) {
@@ -239,6 +419,10 @@ function speakPracticeWord() {
 
 function speakExample() {
   speakText(practiceWord.value?.H)
+}
+
+function speakSelectedExample() {
+  speakText(selectedWord.value?.H, 'en-GB')
 }
 
 function openPractice() {
@@ -384,8 +568,10 @@ function handleAnswerInput(event) {
   answer.value = cleanedValue
 
   const currentIndex = cleanedValue.length - 1
+
   if (
     currentIndex >= 0
+    && !event.inputType?.startsWith('delete')
     && cleanedValue[currentIndex] !== practiceAnswerTarget.value[currentIndex]
   ) {
     triggerLetterShake(currentIndex)
@@ -446,7 +632,24 @@ function jumpToWord() {
 }
 
 function handleGlobalKeydown(event) {
-  if (viewMode.value === 'practice' && event.key === 'Escape') speakPracticeWord()
+  if (viewMode.value !== 'practice') return
+  if (event.target.closest?.('.jump-control')) return
+
+  if (event.key === 'Escape') {
+    speakPracticeWord()
+    return
+  }
+
+  if (event.key === '1') {
+    event.preventDefault()
+    speakExample()
+    return
+  }
+
+  if (event.key === '2') {
+    event.preventDefault()
+    hideWord.value = !hideWord.value
+  }
 }
 
 watch(practiceIndex, (index) => {
@@ -455,6 +658,12 @@ watch(practiceIndex, (index) => {
     saveCachedState()
   }
   if (viewMode.value === 'practice' && autoRead.value) nextTick(speakPracticeWord)
+})
+
+watch(selectedWord, (word) => {
+  if (word && viewMode.value === 'library') {
+    nextTick(() => speakText(word.B, 'en-GB'))
+  }
 })
 
 watch(wrongPracticeIndex, () => {
@@ -489,7 +698,10 @@ watch(wrongWords, (items) => {
 }, { deep: true })
 
 onMounted(() => window.addEventListener('keydown', handleGlobalKeydown))
-onBeforeUnmount(() => window.removeEventListener('keydown', handleGlobalKeydown))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleGlobalKeydown)
+  window.clearTimeout(browseNavigationTimer)
+})
 
 selectCategory(initialCategory)
 </script>
@@ -530,20 +742,42 @@ selectCategory(initialCategory)
         <h1>{{ activeCategory.label }}</h1>
         <p>{{ activeCategory.description }}，选择左侧单词查看完整记忆信息。</p>
       </div>
-      <label class="search-box">
-        <span aria-hidden="true">⌕</span>
-        <input v-model="query" type="search" placeholder="搜索单词、音标或释义" />
-      </label>
+      <div class="search-controls">
+        <label class="search-box">
+          <span aria-hidden="true">⌕</span>
+          <input
+            v-model="query"
+            type="search"
+            placeholder="搜索单词、音标或释义"
+            @input="handleSearchInput"
+            @keydown.enter.prevent="executeGlobalSearch"
+          />
+        </label>
+        <button
+          class="global-search-button"
+          :disabled="!query.trim() || globalSearchLoading"
+          @click="executeGlobalSearch"
+        >
+          {{ globalSearchLoading ? '搜索中…' : '全局搜索' }}
+        </button>
+      </div>
     </header>
 
-    <section v-if="viewMode === 'library'" class="workspace" :aria-busy="loading">
+    <section
+      v-if="viewMode === 'library'"
+      class="workspace"
+      :aria-busy="loading || globalSearchLoading"
+    >
       <aside class="word-panel">
         <div class="panel-heading">
-          <span>单词列表</span>
+          <span>{{ globalSearchMode ? `全局搜索：${globalSearchKeyword}` : '单词列表' }}</span>
           <span>{{ filteredWords.length }} 个结果</span>
         </div>
 
-        <div v-if="loading" class="panel-state">正在载入词库…</div>
+        <div v-if="loading || globalSearchLoading" class="panel-state">
+          {{ globalSearchLoading ? '正在搜索全部词库…' : '正在载入词库…' }}
+        </div>
+        <div v-else-if="globalSearchError" class="panel-state error">{{ globalSearchError }}</div>
         <div v-else-if="loadError" class="panel-state error">{{ loadError }}</div>
         <div v-else-if="!filteredWords.length" class="panel-state">没有找到匹配的单词</div>
 
@@ -556,7 +790,9 @@ selectCategory(initialCategory)
           >
             <span class="word-index">{{ String(index + 1).padStart(2, '0') }}</span>
             <span class="word-name">{{ word.B }}</span>
-            <span class="word-phonetic">{{ word.C }}</span>
+            <span class="word-phonetic">
+              {{ word.C }}<template v-if="word.__categoryLabel"> · {{ word.__categoryLabel }}</template>
+            </span>
             <span class="arrow">→</span>
           </button>
           <button v-if="hasMore" class="load-more" @click="loadMore">
@@ -565,10 +801,20 @@ selectCategory(initialCategory)
         </div>
       </aside>
 
-      <article v-if="selectedWord" class="detail-panel">
+      <article
+        v-if="selectedWord"
+        ref="detailPanel"
+        class="detail-panel"
+        @wheel.passive="handleDetailWheel"
+        @touchstart.passive="handleDetailTouchStart"
+        @touchend.passive="handleDetailTouchEnd"
+      >
         <div class="detail-hero">
           <div>
-            <p class="detail-kicker">WORD DETAIL</p>
+            <p class="detail-kicker">
+              WORD DETAIL
+              <template v-if="selectedWord.__categoryLabel"> · {{ selectedWord.__categoryLabel }}</template>
+            </p>
             <h2>{{ selectedWord.B }}</h2>
             <p class="phonetic">{{ selectedWord.C }}</p>
           </div>
@@ -615,10 +861,37 @@ selectCategory(initialCategory)
         </div>
 
         <section class="example-card">
-          <span class="detail-label">EXAMPLE SENTENCE</span>
+          <div class="example-card-heading">
+            <span class="detail-label">EXAMPLE SENTENCE</span>
+            <button
+              aria-label="播放英式例句"
+              title="播放英式例句"
+              @click="speakSelectedExample"
+            >
+              <span aria-hidden="true">♪</span>
+              播放例句
+            </button>
+          </div>
           <blockquote>{{ selectedWord.H || '暂无例句' }}</blockquote>
           <p>{{ selectedWord.I || '暂无翻译' }}</p>
         </section>
+
+        <div class="browse-word-navigation">
+          <p :class="{ visible: browseNavigationHint }" aria-live="polite">
+            {{ browseNavigationHint || '滚动到底部可快速切换单词' }}
+          </p>
+          <div>
+            <button :disabled="!canBrowsePrevious" @click="browseAdjacentWord(-1)">
+              <span aria-hidden="true">←</span>
+              上一个单词
+            </button>
+            <span>{{ selectedBrowseIndex + 1 }} / {{ filteredWords.length }}</span>
+            <button :disabled="!canBrowseNext" @click="browseAdjacentWord(1)">
+              下一个单词
+              <span aria-hidden="true">→</span>
+            </button>
+          </div>
+        </div>
       </article>
 
       <article v-else class="detail-panel empty-detail">
@@ -707,7 +980,14 @@ selectCategory(initialCategory)
             <span
               v-for="(slot, index) in answerSlots"
               :key="`${currentPracticeIndex}-${index}-${letterShakeVersions[index] ?? 0}`"
-              :class="['letter-slot', { filled: slot.value, wrong: slot.wrong }]"
+              :class="[
+                'letter-slot',
+                {
+                  filled: slot.value,
+                  wrong: slot.wrong,
+                  waiting: pendingLetterIndex === index,
+                },
+              ]"
             >
               {{ slot.value }}
             </span>
@@ -729,9 +1009,9 @@ selectCategory(initialCategory)
 
         <div class="practice-actions">
           <button class="action-coral" @click="speakPracticeWord">♪ 播放单词 <kbd>ESC</kbd></button>
-          <button class="action-gold" @click="speakExample">♪ 播放例句</button>
+          <button class="action-gold" @click="speakExample">♪ 播放例句 <kbd>1</kbd></button>
           <button class="action-blue" @click="hideWord = !hideWord">
-            {{ hideWord ? '显示单词' : '隐藏单词' }}
+            {{ hideWord ? '显示单词' : '隐藏单词' }} <kbd>2</kbd>
           </button>
           <button class="action-green" @click="submitAnswer">提交 <kbd>Enter</kbd></button>
           <button class="action-muted" @click="nextPracticeWord">随机/下一词</button>
