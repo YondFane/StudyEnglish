@@ -473,6 +473,9 @@ h2 {
   white-space: nowrap;
 }
 
+.mobile-card-stage,
+.mobile-drawer-layer { display: none; }
+
 .empty-detail { display: grid; place-items: center; color: #8b9792; }
 
 .page-shell.practice-shell { padding: 0; }
@@ -915,15 +918,293 @@ h2 {
   .workspace {
     height: auto;
     min-height: 0;
-    grid-template-columns: 1fr;
+    display: block;
     overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
   }
-  .word-panel { height: 390px; border-right: 0; border-bottom: 1px solid rgba(24, 50, 45, .1); }
-  .detail-panel {
-    height: min(680px, 72svh);
+  .desktop-word-panel,
+  .desktop-detail-panel { display: none; }
+
+  .mobile-card-stage {
+    min-height: 570px;
+    display: block;
+  }
+
+  .mobile-card-state {
     min-height: 480px;
+    display: grid;
+    place-items: center;
+    color: #83908b;
+    font-size: 13px;
+    text-align: center;
+  }
+
+  .mobile-card-state.error { color: #c95739; }
+
+  .mobile-card-tools {
+    margin-bottom: 12px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .mobile-card-tools button {
+    min-height: 40px;
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border: 1px solid rgba(24, 50, 45, .14);
+    border-radius: 9px;
+    color: #18322d;
+    background: rgba(255, 255, 255, .68);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .mobile-card-tools button:last-child { color: #fff; border-color: #18322d; background: #18322d; }
+  .mobile-card-tools > span { color: #8b9692; font-size: 10px; white-space: nowrap; }
+
+  .mobile-word-card {
+    position: relative;
+    min-height: min(570px, 66svh);
+    padding: 26px 24px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid rgba(24, 50, 45, .1);
+    border-radius: 24px;
+    background:
+      radial-gradient(circle at 88% 8%, rgba(236, 110, 76, .12), transparent 27%),
+      rgba(255, 255, 255, .82);
+    box-shadow: 0 24px 55px rgba(50, 61, 55, .15);
+    touch-action: none;
+    user-select: none;
+    will-change: transform, opacity;
+    transition: transform .28s cubic-bezier(.22, .8, .32, 1), opacity .24s;
+  }
+
+  .mobile-card-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: #9a6960;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+
+  .mobile-card-meta span:last-child { color: #a0aaa6; }
+  .mobile-card-word { margin: 34px 0 18px; text-align: center; }
+  .mobile-card-word h2 {
+    margin: 0;
+    color: #18322d;
+    font-family: Georgia, serif;
+    font-size: clamp(48px, 16vw, 72px);
+    font-weight: 500;
+    letter-spacing: -.05em;
+  }
+
+  .mobile-card-word p { margin: 7px 0 0; color: #7d8b86; font-size: 14px; }
+
+  .mobile-card-sounds {
+    display: flex;
+    justify-content: center;
+    gap: 9px;
+  }
+
+  .mobile-card-sounds button {
+    min-height: 36px;
+    padding: 0 15px;
+    border: 1px solid #ec6e4c;
+    border-radius: 99px;
+    color: #c75a3d;
+    background: transparent;
+    font-size: 10px;
+    font-weight: 600;
+  }
+
+  .mobile-card-sounds button:first-child { color: #fff; background: #ec6e4c; }
+
+  .mobile-card-meaning {
+    margin: 25px 0 18px;
+    padding: 17px 19px;
+    border-left: 3px solid #ec6e4c;
+    border-radius: 0 10px 10px 0;
+    background: #f3eee4;
+  }
+
+  .mobile-card-meaning span,
+  .mobile-card-example > div > span {
+    color: #c95739;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .15em;
+  }
+
+  .mobile-card-meaning p { margin: 7px 0 0; font-size: 15px; line-height: 1.65; }
+
+  .mobile-card-example {
+    margin-top: auto;
+    padding: 19px 20px;
+    border-radius: 14px;
+    color: #eef4f1;
+    background: #18322d;
+  }
+
+  .mobile-card-example > div { display: flex; align-items: center; justify-content: space-between; }
+  .mobile-card-example > div > span { color: #f0a48f; }
+  .mobile-card-example button {
+    width: 31px;
+    height: 31px;
+    border: 1px solid rgba(240, 164, 143, .5);
+    border-radius: 50%;
+    color: #ffd0c3;
+    background: rgba(240, 164, 143, .1);
+  }
+
+  .mobile-card-example blockquote {
+    margin: 13px 0 8px;
+    font-family: Georgia, serif;
+    font-size: 16px;
+    font-style: italic;
+    line-height: 1.55;
+  }
+
+  .mobile-card-example > p { margin: 0; color: #aebcb7; font-size: 11px; line-height: 1.55; }
+
+  .mobile-swipe-hint {
+    min-height: 18px;
+    margin: 13px 0 8px;
+    color: #8d9994;
+    font-size: 10px;
+    text-align: center;
+  }
+
+  .mobile-card-navigation { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .mobile-card-navigation button {
+    min-height: 44px;
+    border: 1px solid rgba(24, 50, 45, .16);
+    border-radius: 9px;
+    color: #18322d;
+    background: rgba(255, 255, 255, .72);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .mobile-card-navigation button:last-child { color: #fff; border-color: #18322d; background: #18322d; }
+  .mobile-card-navigation button:disabled { cursor: not-allowed; opacity: .34; }
+
+  .mobile-drawer-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    padding-top: max(64px, env(safe-area-inset-top));
+    display: flex;
+    align-items: flex-end;
+    background: rgba(6, 22, 19, .46);
+    backdrop-filter: blur(4px);
+  }
+
+  .mobile-drawer {
+    width: 100%;
+    max-height: min(78svh, 720px);
+    padding-bottom: env(safe-area-inset-bottom);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 22px 22px 0 0;
+    background: #f8f6ef;
+    box-shadow: 0 -22px 55px rgba(13, 27, 23, .18);
+    animation: mobile-drawer-up .25s ease-out;
+    touch-action: pan-y;
+  }
+
+  .mobile-drawer-handle {
+    width: 42px;
+    height: 4px;
+    margin: 9px auto 3px;
+    border-radius: 99px;
+    background: #cbd0ca;
+  }
+
+  .mobile-drawer > header {
+    min-height: 64px;
+    padding: 8px 20px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid rgba(24, 50, 45, .09);
+  }
+
+  .mobile-drawer > header > div { display: flex; flex-direction: column; gap: 4px; }
+  .mobile-drawer > header strong { font-size: 15px; }
+  .mobile-drawer > header span { color: #8b9692; font-size: 10px; }
+  .mobile-drawer > header > button {
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 50%;
+    color: #52635d;
+    background: #e9e9e2;
+    font-size: 22px;
+  }
+
+  .mobile-word-list { min-height: 0; flex: 1; overflow-y: auto; }
+  .mobile-word-list > button {
+    grid-template-columns: 30px minmax(95px, .8fr) minmax(80px, 1fr) 18px;
+    padding-inline: 18px;
+  }
+
+  .mobile-detail-content {
+    padding: 18px 20px calc(30px + env(safe-area-inset-bottom));
     overflow-y: auto;
   }
+
+  .mobile-detail-content > section {
+    margin-bottom: 12px;
+    padding: 18px;
+    border: 1px solid rgba(24, 50, 45, .1);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, .72);
+  }
+
+  .mobile-detail-content section > span,
+  .mobile-detail-example-heading > span {
+    color: #9aa39f;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .14em;
+  }
+
+  .mobile-detail-content p { margin: 9px 0 0; color: #5f6f69; font-size: 13px; line-height: 1.75; }
+  .mobile-detail-content .split-word { color: #ec6e4c; font-family: Georgia, serif; font-size: 21px; }
+  .mobile-detail-content blockquote { margin: 15px 0 9px; font-family: Georgia, serif; font-size: 17px; font-style: italic; line-height: 1.6; }
+  .mobile-detail-example-heading { display: flex; align-items: center; justify-content: space-between; }
+  .mobile-detail-example-heading button {
+    padding: 7px 11px;
+    border: 0;
+    border-radius: 99px;
+    color: #fff;
+    background: #ec6e4c;
+    font-size: 10px;
+  }
+
+  .mobile-card-leaving-left { animation: mobile-leave-left .18s ease-in forwards; }
+  .mobile-card-entering-left { animation: mobile-enter-right .26s ease-out; }
+  .mobile-card-leaving-right { animation: mobile-leave-right .18s ease-in forwards; }
+  .mobile-card-entering-right { animation: mobile-enter-left .26s ease-out; }
+  .mobile-card-leaving-up { animation: mobile-leave-up .18s ease-in forwards; }
+  .mobile-card-entering-up { animation: mobile-enter-down .26s ease-out; }
+  .mobile-card-leaving-down { animation: mobile-leave-down .18s ease-in forwards; }
+  .mobile-card-entering-down { animation: mobile-enter-up .26s ease-out; }
+
   .practice-view { min-height: 100svh; overflow-y: auto; }
   .practice-toolbar { width: calc(100% - 28px); }
   .practice-options { justify-content: flex-start; overflow-x: auto; padding-bottom: 3px; }
@@ -938,6 +1219,47 @@ h2 {
     margin: 0 auto;
     padding: 24px 0;
   }
+}
+
+@keyframes mobile-leave-left {
+  to { opacity: 0; transform: translate3d(-115%, 0, 0) rotate(-6deg) scale(.96); }
+}
+
+@keyframes mobile-enter-right {
+  from { opacity: 0; transform: translate3d(22%, 0, 0) rotate(2deg) scale(.98); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) rotate(0) scale(1); }
+}
+
+@keyframes mobile-leave-right {
+  to { opacity: 0; transform: translate3d(115%, 0, 0) rotate(6deg) scale(.96); }
+}
+
+@keyframes mobile-enter-left {
+  from { opacity: 0; transform: translate3d(-22%, 0, 0) rotate(-2deg) scale(.98); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) rotate(0) scale(1); }
+}
+
+@keyframes mobile-leave-up {
+  to { opacity: 0; transform: translate3d(0, -90%, 0) scale(.96); }
+}
+
+@keyframes mobile-enter-down {
+  from { opacity: 0; transform: translate3d(0, 18%, 0) scale(.98); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes mobile-leave-down {
+  to { opacity: 0; transform: translate3d(0, 90%, 0) scale(.96); }
+}
+
+@keyframes mobile-enter-up {
+  from { opacity: 0; transform: translate3d(0, -18%, 0) scale(.98); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes mobile-drawer-up {
+  from { opacity: 0; transform: translateY(28px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @media (max-width: 480px) {

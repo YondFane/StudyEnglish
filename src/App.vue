@@ -99,15 +99,33 @@ const feedback = ref(null)
 const wrongWords = ref([])
 const jumpNumber = ref(1)
 const progressByCategory = ref(cachedState.progressByCategory ?? {})
+const browseProgressByCategory = ref(cachedState.browseProgressByCategory ?? {})
 const wrongWordsByCategory = ref(cachedState.wrongWordsByCategory ?? {})
 const browseNavigationArmed = ref(false)
 const browseNavigationHint = ref('')
+const isMobileCardMode = ref(false)
+const mobileWordListOpen = ref(false)
+const mobileDetailOpen = ref(false)
+const mobileCardDragging = ref(false)
+const mobileCardOffsetX = ref(0)
+const mobileCardOffsetY = ref(0)
+const mobileCardAxis = ref('')
+const mobileCardPhase = ref('')
+const mobileCardDirection = ref('')
+const mobileSwipeHint = ref('左滑或上滑下一词 · 右滑或下滑上一词')
 let cacheReady = false
 let browseNavigationTimer
 let browseNavigationCooldownUntil = 0
 let lastBrowseWheelAt = 0
 let detailTouchStartY = 0
 let detailTouchStartedAtBottom = false
+let mobileMediaQuery
+let mobilePointerStartX = 0
+let mobilePointerStartY = 0
+let mobilePointerStartAt = 0
+let mobileCardAnimationTimer
+let mobileSwipeHintTimer
+let mobileCardCooldownUntil = 0
 
 function saveCachedState() {
   if (!cacheReady) return
@@ -117,6 +135,7 @@ function saveCachedState() {
       version: 2,
       activeCategoryId: activeCategory.value.id,
       progressByCategory: progressByCategory.value,
+      browseProgressByCategory: browseProgressByCategory.value,
       wrongWordsByCategory: wrongWordsByCategory.value,
       settings: {
         accent: accent.value,
@@ -155,6 +174,23 @@ const canBrowseNext = computed(() =>
   filteredWords.value.length > 0
   && selectedBrowseIndex.value < filteredWords.value.length - 1,
 )
+const mobileCardStyle = computed(() => {
+  if (!mobileCardDragging.value) return undefined
+  const distance = Math.hypot(mobileCardOffsetX.value, mobileCardOffsetY.value)
+  const scale = Math.max(0.965, 1 - distance / 2400)
+  const rotation = mobileCardAxis.value === 'x' ? mobileCardOffsetX.value / 45 : 0
+
+  return {
+    transform: `translate3d(${mobileCardOffsetX.value}px, ${mobileCardOffsetY.value}px, 0) rotate(${rotation}deg) scale(${scale})`,
+    opacity: Math.max(0.72, 1 - distance / 720),
+    transition: 'none',
+  }
+})
+const mobileCardAnimationClass = computed(() =>
+  mobileCardPhase.value && mobileCardDirection.value
+    ? `mobile-card-${mobileCardPhase.value}-${mobileCardDirection.value}`
+    : '',
+)
 const practiceCollection = computed(() =>
   wrongPracticeMode.value ? wrongWords.value : words.value,
 )
@@ -182,6 +218,17 @@ const pendingLetterIndex = computed(() =>
   answer.value.length < practiceAnswerTarget.value.length ? answer.value.length : -1,
 )
 
+function restoreBrowseSelection(categoryId, entries = words.value) {
+  const savedIndex = Number(browseProgressByCategory.value[categoryId])
+  const restoredIndex = Number.isInteger(savedIndex)
+    ? Math.min(Math.max(savedIndex, 0), Math.max(entries.length - 1, 0))
+    : 0
+
+  visibleCount.value = Math.max(120, restoredIndex + 1)
+  selectedWord.value = entries[restoredIndex] ?? null
+  nextTick(scrollSelectedWordIntoView)
+}
+
 async function selectCategory(category) {
   if (loading.value) return
   if (activeCategory.value.id === category.id && words.value.length) {
@@ -191,8 +238,7 @@ async function selectCategory(category) {
       globalSearchKeyword.value = ''
       globalSearchError.value = ''
       query.value = ''
-      visibleCount.value = 120
-      selectedWord.value = words.value[0] ?? null
+      restoreBrowseSelection(category.id)
     }
     return
   }
@@ -217,7 +263,7 @@ async function selectCategory(category) {
   try {
     const module = await category.load()
     words.value = module.default
-    selectedWord.value = words.value[0] ?? null
+    restoreBrowseSelection(category.id, words.value)
     const legacyIndex = Number(localStorage.getItem(`study-progress:${category.id}`))
     const savedIndex = Number(progressByCategory.value[category.id] ?? legacyIndex)
     practiceIndex.value = recordProgress.value && Number.isInteger(savedIndex)
@@ -237,6 +283,7 @@ async function selectCategory(category) {
     console.error(error)
   } finally {
     loading.value = false
+    nextTick(scrollSelectedWordIntoView)
   }
 }
 
@@ -247,8 +294,7 @@ function handleSearchInput() {
   globalSearchMode.value = false
   globalSearchResults.value = []
   globalSearchKeyword.value = ''
-  selectedWord.value = words.value[0] ?? null
-  visibleCount.value = 120
+  restoreBrowseSelection(activeCategory.value.id)
 }
 
 async function executeGlobalSearch() {
@@ -391,6 +437,122 @@ function handleDetailTouchEnd(event) {
   if (!detailTouchStartedAtBottom) return
   const endY = event.changedTouches[0]?.clientY ?? detailTouchStartY
   if (detailTouchStartY - endY >= 55) requestNextWordByGesture('touch')
+}
+
+function updateMobileCardMode(event) {
+  isMobileCardMode.value = event.matches
+  if (!event.matches) {
+    mobileWordListOpen.value = false
+    mobileDetailOpen.value = false
+    resetMobileCardPosition()
+  }
+}
+
+function showMobileSwipeHint(message) {
+  mobileSwipeHint.value = message
+  window.clearTimeout(mobileSwipeHintTimer)
+  mobileSwipeHintTimer = window.setTimeout(() => {
+    mobileSwipeHint.value = '左滑或上滑下一词 · 右滑或下滑上一词'
+  }, 1500)
+}
+
+function resetMobileCardPosition() {
+  mobileCardDragging.value = false
+  mobileCardOffsetX.value = 0
+  mobileCardOffsetY.value = 0
+  mobileCardAxis.value = ''
+}
+
+function animateMobileWordChange(direction, gestureDirection) {
+  if (Date.now() < mobileCardCooldownUntil || mobileCardPhase.value) return
+
+  if (direction > 0 && !canBrowseNext.value) {
+    showMobileSwipeHint('已经是最后一个单词')
+    resetMobileCardPosition()
+    return
+  }
+  if (direction < 0 && !canBrowsePrevious.value) {
+    showMobileSwipeHint('已经是第一个单词')
+    resetMobileCardPosition()
+    return
+  }
+
+  resetMobileCardPosition()
+  mobileCardCooldownUntil = Date.now() + 450
+  mobileCardDirection.value = gestureDirection
+  mobileCardPhase.value = 'leaving'
+  window.clearTimeout(mobileCardAnimationTimer)
+  mobileCardAnimationTimer = window.setTimeout(() => {
+    browseAdjacentWord(direction)
+    mobileCardPhase.value = 'entering'
+    mobileCardAnimationTimer = window.setTimeout(() => {
+      mobileCardPhase.value = ''
+      mobileCardDirection.value = ''
+    }, 260)
+  }, 180)
+}
+
+function handleMobileCardPointerDown(event) {
+  if (
+    !isMobileCardMode.value
+    || mobileDetailOpen.value
+    || mobileWordListOpen.value
+    || mobileCardPhase.value
+    || event.target.closest('button, input, a, label')
+  ) return
+
+  mobilePointerStartX = event.clientX
+  mobilePointerStartY = event.clientY
+  mobilePointerStartAt = performance.now()
+  mobileCardDragging.value = true
+  mobileCardAxis.value = ''
+  event.currentTarget.setPointerCapture?.(event.pointerId)
+}
+
+function handleMobileCardPointerMove(event) {
+  if (!mobileCardDragging.value) return
+
+  const deltaX = event.clientX - mobilePointerStartX
+  const deltaY = event.clientY - mobilePointerStartY
+  if (!mobileCardAxis.value && Math.max(Math.abs(deltaX), Math.abs(deltaY)) >= 12) {
+    mobileCardAxis.value = Math.abs(deltaX) >= Math.abs(deltaY) ? 'x' : 'y'
+  }
+
+  if (mobileCardAxis.value === 'x') {
+    mobileCardOffsetX.value = deltaX
+    mobileCardOffsetY.value = 0
+  } else if (mobileCardAxis.value === 'y') {
+    mobileCardOffsetX.value = 0
+    mobileCardOffsetY.value = deltaY
+  }
+}
+
+function handleMobileCardPointerUp(event) {
+  if (!mobileCardDragging.value) return
+
+  const deltaX = event.clientX - mobilePointerStartX
+  const deltaY = event.clientY - mobilePointerStartY
+  const axis = mobileCardAxis.value || (Math.abs(deltaX) >= Math.abs(deltaY) ? 'x' : 'y')
+  const distance = axis === 'x' ? deltaX : deltaY
+  const duration = Math.max(performance.now() - mobilePointerStartAt, 1)
+  const velocity = Math.abs(distance) / duration
+  const shouldSwitch = Math.abs(distance) >= 64 || (Math.abs(distance) >= 24 && velocity >= 0.35)
+
+  if (!shouldSwitch) {
+    resetMobileCardPosition()
+    return
+  }
+
+  const direction = distance < 0 ? 1 : -1
+  const gestureDirection = axis === 'x'
+    ? (distance < 0 ? 'left' : 'right')
+    : (distance < 0 ? 'up' : 'down')
+  animateMobileWordChange(direction, gestureDirection)
+}
+
+function selectMobileWord(word) {
+  selectWord(word)
+  mobileWordListOpen.value = false
 }
 
 function speakText(text, lang = accent.value) {
@@ -662,6 +824,13 @@ watch(practiceIndex, (index) => {
 
 watch(selectedWord, (word) => {
   if (word && viewMode.value === 'library') {
+    if (!globalSearchMode.value) {
+      const browseIndex = words.value.indexOf(word)
+      if (browseIndex >= 0) {
+        browseProgressByCategory.value[activeCategory.value.id] = browseIndex
+        saveCachedState()
+      }
+    }
     nextTick(() => speakText(word.B, 'en-GB'))
   }
 })
@@ -697,10 +866,18 @@ watch(wrongWords, (items) => {
   saveCachedState()
 }, { deep: true })
 
-onMounted(() => window.addEventListener('keydown', handleGlobalKeydown))
+onMounted(() => {
+  window.addEventListener('keydown', handleGlobalKeydown)
+  mobileMediaQuery = window.matchMedia('(max-width: 720px)')
+  updateMobileCardMode(mobileMediaQuery)
+  mobileMediaQuery.addEventListener?.('change', updateMobileCardMode)
+})
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
+  mobileMediaQuery?.removeEventListener?.('change', updateMobileCardMode)
   window.clearTimeout(browseNavigationTimer)
+  window.clearTimeout(mobileCardAnimationTimer)
+  window.clearTimeout(mobileSwipeHintTimer)
 })
 
 selectCategory(initialCategory)
@@ -768,7 +945,7 @@ selectCategory(initialCategory)
       class="workspace"
       :aria-busy="loading || globalSearchLoading"
     >
-      <aside class="word-panel">
+      <aside class="word-panel desktop-word-panel">
         <div class="panel-heading">
           <span>{{ globalSearchMode ? `全局搜索：${globalSearchKeyword}` : '单词列表' }}</span>
           <span>{{ filteredWords.length }} 个结果</span>
@@ -804,7 +981,7 @@ selectCategory(initialCategory)
       <article
         v-if="selectedWord"
         ref="detailPanel"
-        class="detail-panel"
+        class="detail-panel desktop-detail-panel"
         @wheel.passive="handleDetailWheel"
         @touchstart.passive="handleDetailTouchStart"
         @touchend.passive="handleDetailTouchEnd"
@@ -894,9 +1071,164 @@ selectCategory(initialCategory)
         </div>
       </article>
 
-      <article v-else class="detail-panel empty-detail">
+      <article v-else class="detail-panel desktop-detail-panel empty-detail">
         <p>从左侧选择一个单词查看详情</p>
       </article>
+
+      <div class="mobile-card-stage">
+        <div v-if="loading || globalSearchLoading" class="mobile-card-state">
+          {{ globalSearchLoading ? '正在搜索全部词库…' : '正在载入词库…' }}
+        </div>
+        <div v-else-if="globalSearchError || loadError" class="mobile-card-state error">
+          {{ globalSearchError || loadError }}
+        </div>
+        <div v-else-if="!selectedWord" class="mobile-card-state">没有找到匹配的单词</div>
+
+        <template v-else>
+          <div class="mobile-card-tools">
+            <button @click="mobileWordListOpen = true">
+              <span aria-hidden="true">☰</span>
+              词表
+            </button>
+            <span>{{ selectedBrowseIndex + 1 }} / {{ filteredWords.length }}</span>
+            <button @click="mobileDetailOpen = true">
+              记忆详情
+              <span aria-hidden="true">↑</span>
+            </button>
+          </div>
+
+          <article
+            :class="['mobile-word-card', mobileCardAnimationClass]"
+            :style="mobileCardStyle"
+            @pointerdown="handleMobileCardPointerDown"
+            @pointermove="handleMobileCardPointerMove"
+            @pointerup="handleMobileCardPointerUp"
+            @pointercancel="resetMobileCardPosition"
+          >
+            <div class="mobile-card-meta">
+              <span>{{ selectedWord.__categoryLabel || activeCategory.label }}</span>
+              <span>WORD CARD</span>
+            </div>
+
+            <div class="mobile-card-word">
+              <h2>{{ selectedWord.B }}</h2>
+              <p>{{ selectedWord.C }}</p>
+            </div>
+
+            <div class="mobile-card-sounds" aria-label="单词发音">
+              <button aria-label="播放英式发音" @click="speakWord('en-GB')">♪ 英式</button>
+              <button aria-label="播放美式发音" @click="speakWord('en-US')">♪ 美式</button>
+            </div>
+
+            <section class="mobile-card-meaning">
+              <span>释义</span>
+              <p>{{ selectedWord.D || '暂无释义' }}</p>
+            </section>
+
+            <section class="mobile-card-example">
+              <div>
+                <span>EXAMPLE SENTENCE</span>
+                <button aria-label="播放英式例句" @click="speakSelectedExample">♪</button>
+              </div>
+              <blockquote>{{ selectedWord.H || '暂无例句' }}</blockquote>
+              <p>{{ selectedWord.I || '暂无翻译' }}</p>
+            </section>
+          </article>
+
+          <p class="mobile-swipe-hint" aria-live="polite">{{ mobileSwipeHint }}</p>
+
+          <div class="mobile-card-navigation">
+            <button
+              :disabled="!canBrowsePrevious"
+              @click="animateMobileWordChange(-1, 'right')"
+            >
+              ← 上一个单词
+            </button>
+            <button
+              :disabled="!canBrowseNext"
+              @click="animateMobileWordChange(1, 'left')"
+            >
+              下一个单词 →
+            </button>
+          </div>
+        </template>
+      </div>
+
+      <div
+        v-if="mobileWordListOpen"
+        class="mobile-drawer-layer"
+        role="presentation"
+        @click.self="mobileWordListOpen = false"
+      >
+        <section class="mobile-drawer mobile-list-drawer" role="dialog" aria-modal="true" aria-label="单词列表">
+          <div class="mobile-drawer-handle"></div>
+          <header>
+            <div>
+              <strong>{{ globalSearchMode ? `全局搜索：${globalSearchKeyword}` : activeCategory.label }}</strong>
+              <span>{{ filteredWords.length }} 个结果</span>
+            </div>
+            <button aria-label="关闭单词列表" @click="mobileWordListOpen = false">×</button>
+          </header>
+          <div class="word-list mobile-word-list">
+            <button
+              v-for="(word, index) in visibleWords"
+              :key="`mobile-${word.B}-${index}`"
+              :class="{ selected: selectedWord === word }"
+              @click="selectMobileWord(word)"
+            >
+              <span class="word-index">{{ String(index + 1).padStart(2, '0') }}</span>
+              <span class="word-name">{{ word.B }}</span>
+              <span class="word-phonetic">
+                {{ word.C }}<template v-if="word.__categoryLabel"> · {{ word.__categoryLabel }}</template>
+              </span>
+              <span class="arrow">→</span>
+            </button>
+            <button v-if="hasMore" class="load-more" @click="loadMore">
+              加载更多（剩余 {{ filteredWords.length - visibleCount }}）
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div
+        v-if="mobileDetailOpen && selectedWord"
+        class="mobile-drawer-layer"
+        role="presentation"
+        @click.self="mobileDetailOpen = false"
+      >
+        <section class="mobile-drawer mobile-detail-drawer" role="dialog" aria-modal="true" aria-label="单词记忆详情">
+          <div class="mobile-drawer-handle"></div>
+          <header>
+            <div>
+              <strong>{{ selectedWord.B }}</strong>
+              <span>完整记忆详情</span>
+            </div>
+            <button aria-label="关闭记忆详情" @click="mobileDetailOpen = false">×</button>
+          </header>
+          <div class="mobile-detail-content">
+            <section>
+              <span>单词拆分</span>
+              <p class="split-word">{{ selectedWord.E || '—' }}</p>
+            </section>
+            <section>
+              <span>拆分联想</span>
+              <p>{{ selectedWord.F || '—' }}</p>
+            </section>
+            <section>
+              <span>记忆提示</span>
+              <p>{{ selectedWord.G || '—' }}</p>
+            </section>
+            <section>
+              <div class="mobile-detail-example-heading">
+                <span>例句与翻译</span>
+                <button aria-label="播放英式例句" @click="speakSelectedExample">♪ 播放</button>
+              </div>
+              <blockquote>{{ selectedWord.H || '暂无例句' }}</blockquote>
+              <p>{{ selectedWord.I || '暂无翻译' }}</p>
+            </section>
+          </div>
+        </section>
+      </div>
     </section>
 
     <section v-else class="practice-view">
