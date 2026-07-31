@@ -82,6 +82,7 @@ const loading = ref(false)
 const loadError = ref('')
 const viewMode = ref('library')
 const accent = ref(cachedSettings.accent === 'en-US' ? 'en-US' : 'en-GB')
+const dictionaryPronunciationEnabled = ref(cachedSettings.dictionaryPronunciationEnabled ?? true)
 const autoRead = ref(cachedSettings.autoRead ?? true)
 const recordProgress = ref(cachedSettings.recordProgress ?? true)
 const particlesEnabled = ref(cachedSettings.particlesEnabled ?? true)
@@ -126,6 +127,9 @@ let mobilePointerStartAt = 0
 let mobileCardAnimationTimer
 let mobileSwipeHintTimer
 let mobileCardCooldownUntil = 0
+let activeDictionaryAudio
+let pronunciationRequestId = 0
+let speechVoices = []
 
 function saveCachedState() {
   if (!cacheReady) return
@@ -139,6 +143,7 @@ function saveCachedState() {
       wrongWordsByCategory: wrongWordsByCategory.value,
       settings: {
         accent: accent.value,
+        dictionaryPronunciationEnabled: dictionaryPronunciationEnabled.value,
         autoRead: autoRead.value,
         recordProgress: recordProgress.value,
         particlesEnabled: particlesEnabled.value,
@@ -555,36 +560,120 @@ function selectMobileWord(word) {
   mobileWordListOpen.value = false
 }
 
-function speakText(text, lang = accent.value) {
+function refreshSpeechVoices() {
+  if ('speechSynthesis' in window) speechVoices = window.speechSynthesis.getVoices()
+}
+
+function selectPreferredVoice(lang) {
+  const voices = speechVoices.length ? speechVoices : window.speechSynthesis.getVoices()
+  const targetLang = lang.toLowerCase()
+  const preferredNames = targetLang === 'en-gb'
+    ? ['sonia', 'libby', 'ryan', 'george', 'hazel', 'daniel']
+    : ['aria', 'jenny', 'guy', 'samantha', 'alex', 'zira', 'david']
+
+  return voices
+    .map((voice) => {
+      const voiceLang = voice.lang.toLowerCase()
+      const voiceName = voice.name.toLowerCase()
+      let score = 0
+      if (voiceLang === targetLang) score += 100
+      else if (voiceLang.startsWith(targetLang.split('-')[0])) score += 20
+      if (preferredNames.some((name) => voiceName.includes(name))) score += 35
+      if (voice.localService) score += 5
+      return { voice, score }
+    })
+    .filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score)[0]?.voice
+}
+
+function stopDictionaryAudio() {
+  pronunciationRequestId += 1
+  if (!activeDictionaryAudio) return
+  activeDictionaryAudio.pause()
+  activeDictionaryAudio.currentTime = 0
+  activeDictionaryAudio = undefined
+}
+
+function speakWithSystemVoice(text, lang, rate) {
   if (!text || !('speechSynthesis' in window)) return
 
   window.speechSynthesis.cancel()
   const utterance = new SpeechSynthesisUtterance(text)
-  const voices = window.speechSynthesis.getVoices()
-  const preferredVoice = voices.find(
-    (voice) => voice.lang.toLowerCase() === lang.toLowerCase(),
-  )
+  const preferredVoice = selectPreferredVoice(lang)
 
   utterance.lang = lang
-  utterance.rate = 0.9
+  utterance.rate = rate
+  utterance.pitch = 1
   if (preferredVoice) utterance.voice = preferredVoice
   window.speechSynthesis.speak(utterance)
 }
 
+function speakText(text, lang = accent.value, rate = 0.82) {
+  stopDictionaryAudio()
+  speakWithSystemVoice(text, lang, rate)
+}
+
+function getDictionaryAudioUrl(word, lang) {
+  const normalizedWord = String(word ?? '').trim().toLowerCase()
+  if (!/^[a-z]+(?:[-'][a-z]+)*$/.test(normalizedWord)) return ''
+  const voiceType = lang.toLowerCase() === 'en-gb' ? 1 : 2
+  return `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(normalizedWord)}&type=${voiceType}`
+}
+
+async function speakDictionaryWord(text, lang) {
+  if (!text) return
+
+  stopDictionaryAudio()
+  window.speechSynthesis?.cancel()
+  if (!dictionaryPronunciationEnabled.value) {
+    speakWithSystemVoice(text, lang, 0.82)
+    return
+  }
+
+  const requestId = pronunciationRequestId
+  let fallbackStarted = false
+  const fallback = () => {
+    if (fallbackStarted || requestId !== pronunciationRequestId) return
+    fallbackStarted = true
+    speakWithSystemVoice(text, lang, 0.82)
+  }
+
+  const audioUrl = getDictionaryAudioUrl(text, lang)
+  if (!audioUrl) {
+    fallback()
+    return
+  }
+
+  const audio = new Audio(audioUrl)
+  audio.preload = 'auto'
+  activeDictionaryAudio = audio
+  audio.addEventListener('ended', () => {
+    if (activeDictionaryAudio === audio) activeDictionaryAudio = undefined
+  }, { once: true })
+  audio.addEventListener('error', fallback, { once: true })
+
+  try {
+    await audio.play()
+  } catch {
+    if (activeDictionaryAudio === audio) activeDictionaryAudio = undefined
+    fallback()
+  }
+}
+
 function speakWord(lang) {
-  speakText(selectedWord.value?.B, lang)
+  speakDictionaryWord(selectedWord.value?.B, lang)
 }
 
 function speakPracticeWord() {
-  speakText(practiceWord.value?.B)
+  speakDictionaryWord(practiceWord.value?.B, accent.value)
 }
 
 function speakExample() {
-  speakText(practiceWord.value?.H)
+  speakText(practiceWord.value?.H, accent.value, 0.82)
 }
 
 function speakSelectedExample() {
-  speakText(selectedWord.value?.H, 'en-GB')
+  speakText(selectedWord.value?.H, 'en-GB', 0.82)
 }
 
 function openPractice() {
@@ -831,7 +920,7 @@ watch(selectedWord, (word) => {
         saveCachedState()
       }
     }
-    nextTick(() => speakText(word.B, 'en-GB'))
+    nextTick(() => speakDictionaryWord(word.B, 'en-GB'))
   }
 })
 
@@ -856,9 +945,13 @@ watch(randomPractice, (enabled) => {
 })
 
 watch(
-  [accent, autoRead, particlesEnabled, trackErrors, hideWord],
+  [accent, dictionaryPronunciationEnabled, autoRead, particlesEnabled, trackErrors, hideWord],
   saveCachedState,
 )
+
+watch(dictionaryPronunciationEnabled, (enabled) => {
+  if (!enabled) stopDictionaryAudio()
+})
 
 watch(wrongWords, (items) => {
   if (!cacheReady) return
@@ -868,12 +961,17 @@ watch(wrongWords, (items) => {
 
 onMounted(() => {
   window.addEventListener('keydown', handleGlobalKeydown)
+  refreshSpeechVoices()
+  window.speechSynthesis?.addEventListener?.('voiceschanged', refreshSpeechVoices)
   mobileMediaQuery = window.matchMedia('(max-width: 720px)')
   updateMobileCardMode(mobileMediaQuery)
   mobileMediaQuery.addEventListener?.('change', updateMobileCardMode)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
+  window.speechSynthesis?.removeEventListener?.('voiceschanged', refreshSpeechVoices)
+  stopDictionaryAudio()
+  window.speechSynthesis?.cancel()
   mobileMediaQuery?.removeEventListener?.('change', updateMobileCardMode)
   window.clearTimeout(browseNavigationTimer)
   window.clearTimeout(mobileCardAnimationTimer)
@@ -905,6 +1003,22 @@ selectCategory(initialCategory)
           {{ category.label }}
         </button>
       </div>
+
+      <label
+        class="dictionary-audio-toggle"
+        :title="dictionaryPronunciationEnabled ? '已开启在线词典发音' : '已关闭在线词典发音，使用系统语音'"
+      >
+        <span>词典发音</span>
+        <input
+          v-model="dictionaryPronunciationEnabled"
+          type="checkbox"
+          role="switch"
+          aria-label="使用在线词典发音"
+        />
+        <span class="dictionary-audio-track" aria-hidden="true">
+          <span></span>
+        </span>
+      </label>
 
       <button class="practice-entry" @click="openPractice">
         开始练习
