@@ -184,6 +184,7 @@ let activeDictionaryAudio
 let activePronunciationController
 let pronunciationRequestId = 0
 let selectedWordRequestId = 0
+let loadMoreFrame
 let speechVoices = []
 
 function saveCachedState() {
@@ -461,8 +462,15 @@ async function selectWord(word) {
   }
 }
 
-function loadMore() {
-  visibleCount.value += 120
+function handleWordListScroll(event) {
+  const list = event.currentTarget
+  const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight
+  if (!hasMore.value || distanceToBottom > 240 || loadMoreFrame) return
+
+  loadMoreFrame = window.requestAnimationFrame(() => {
+    visibleCount.value += 120
+    loadMoreFrame = undefined
+  })
 }
 
 function isDetailAtBottom() {
@@ -1131,6 +1139,7 @@ onBeforeUnmount(() => {
   window.clearTimeout(browseNavigationTimer)
   window.clearTimeout(mobileCardAnimationTimer)
   window.clearTimeout(mobileSwipeHintTimer)
+  window.cancelAnimationFrame(loadMoreFrame)
 })
 
 selectCategory(initialCategory)
@@ -1240,7 +1249,7 @@ selectCategory(initialCategory)
         <div v-else-if="loadError" class="panel-state error">{{ loadError }}</div>
         <div v-else-if="!filteredWords.length" class="panel-state">没有找到匹配的词条</div>
 
-        <div v-else class="word-list">
+        <div v-else class="word-list" @scroll.passive="handleWordListScroll">
           <button
             v-for="(word, index) in visibleWords"
             :key="`${wordKey(word)}-${index}`"
@@ -1253,9 +1262,6 @@ selectCategory(initialCategory)
               {{ pronunciationFor(word) }}<template v-if="word.__datasetLabel"> · {{ word.__datasetLabel }}</template>
             </span>
             <span class="arrow">→</span>
-          </button>
-          <button v-if="hasMore" class="load-more" @click="loadMore">
-            加载更多（剩余 {{ filteredWords.length - visibleCount }}）
           </button>
         </div>
       </aside>
@@ -1428,7 +1434,7 @@ selectCategory(initialCategory)
             </div>
             <button aria-label="关闭词条列表" @click="mobileWordListOpen = false">×</button>
           </header>
-          <div class="word-list mobile-word-list">
+          <div class="word-list mobile-word-list" @scroll.passive="handleWordListScroll">
             <button
               v-for="(word, index) in visibleWords"
               :key="`mobile-${wordKey(word)}-${index}`"
@@ -1441,9 +1447,6 @@ selectCategory(initialCategory)
                 {{ pronunciationFor(word) }}<template v-if="word.__datasetLabel"> · {{ word.__datasetLabel }}</template>
               </span>
               <span class="arrow">→</span>
-            </button>
-            <button v-if="hasMore" class="load-more" @click="loadMore">
-              加载更多（剩余 {{ filteredWords.length - visibleCount }}）
             </button>
           </div>
         </section>

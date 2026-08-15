@@ -348,14 +348,6 @@ h1 {
 .word-phonetic { overflow: hidden; color: #84918c; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .selected .word-index, .selected .word-phonetic { color: #aabdb7; }
 .arrow { justify-self: end; color: #ec6e4c; }
-.word-list > button.load-more {
-  display: block;
-  padding: 18px;
-  color: #c85b3d;
-  font-size: 12px;
-  text-align: center;
-}
-
 .panel-state {
   flex: 1;
   display: grid;
