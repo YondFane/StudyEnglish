@@ -26,7 +26,7 @@ StudyEnglish 是一个基于 Vue 3 和 Vite 的纯前端英语词汇学习网站
 ```text
 StudyEnglish/
 ├─ data/
-│  └─ words/                         # 词库文件
+│  └─ excel/                         # JSON 词库、清单和加载入口
 ├─ src/
 │  ├─ components/
 │  │  └─ ParticleBackground.vue      # 练习页面粒子背景
@@ -45,56 +45,44 @@ StudyEnglish/
 
 ## 4. 词库说明
 
-当前词库位于 `data/words`：
+当前词库位于 `data/excel`，由 16 个 Excel 文件转换为 UTF-8 JSON，共 8 个导航分类、37,824 条记录。完整文件清单和记录数见 `data/excel/README.md`。
 
-| 页面标签 | 文件 | 当前单词数 |
-| --- | --- | ---: |
-| 中考单词 | `highSchoolEntranceWords.js` | 1058 |
-| 高一单词 | `gradeOneWords.js` | 954 |
-| 高二单词 | `gradeTwoWords.js` | 1151 |
-| 高考单词 | `collegeEntranceWords.js` | 1156 |
-| 常用单词 | `commonWords.js` | 7064 |
+页面导航分类为中考、高考、四级、六级、专八、雅思、托福和新概念英语。导航栏下拉框用于选择分类下的词汇、词组或新概念英语册次，每次只加载一个数据集。
 
-词库文件使用默认导出：
+通过 `data/excel/index.js` 的 `loadDataset(id)` 按需加载数据：
 
 ```js
-const datas = [
-  // 单词对象
-]
+import { categories, datasets, loadDataset } from './data/excel/index.js'
 
-export default datas
+const words = await loadDataset('cet4-vocabulary')
 ```
 
-每个单词对象的字段定义：
+每个词条对象的字段定义：
 
 | 字段 | 内容 |
 | --- | --- |
-| `B` | 单词 |
-| `C` | 音标 |
-| `D` | 中文释义 |
-| `E` | 单词拆分 |
-| `F` | 拆分联想 |
-| `G` | 记忆提示 |
-| `H` | 英文例句 |
-| `I` | 例句翻译 |
+| `term` | 单词或词组 |
+| `britishPronunciation` | 英式音标，缺失时为 `null` |
+| `americanPronunciation` | 美式音标，缺失时为 `null` |
+| `definition` | 中文释义 |
 
 新增词库时，需要：
 
 1. 保持以上数据结构。
-2. 使用 `export default datas` 导出。
-3. 在 `src/App.vue` 的 `categories` 中增加对应标签和动态导入函数。
+2. 在 `data/excel/manifest.json` 和 `data/excel/index.js` 中增加数据集信息和动态导入函数。
+3. 在分类清单中关联对应数据集。
 4. 文件统一使用 UTF-8 编码。
 
 ## 5. 词库浏览模式
 
 浏览模式目前包含以下功能：
 
-- 顶部五个词库分类标签。
+- 顶部八个词库分类标签。
 - 点击标签后动态导入对应词库，避免首次加载全部数据。
 - 根据单词、音标或释义进行搜索。
 - 搜索框输入时默认实时筛选当前词库。
 - 搜索框旁提供“全局搜索”按钮，按 Enter 也可以执行全局搜索。
-- 全局搜索只在用户主动执行时动态加载五个词库，不影响首页首次加载性能。
+- 全局搜索只在用户主动执行时动态加载八个分类，不影响首页首次加载性能。
 - 全局结果会显示来源词库，并支持详情查看、自动发音和上下词切换。
 - 用户继续修改搜索关键字时退出全局模式，恢复当前词库实时搜索。
 - 点击当前词库标签可以清除全局结果并返回该词库。
@@ -106,18 +94,14 @@ export default datas
 - 左侧列表拥有独立纵向滚动区域。
 - 右侧显示当前单词详情：
   - 单词
-  - 音标
+  - 英式音标
+  - 美式音标
   - 中文释义
-  - 单词拆分
-  - 拆分联想
-  - 记忆提示
-  - 英文例句
-  - 例句翻译
+  - 来源数据集
 - 支持英式和美式发音。
 - 首页右侧首次显示一个单词时自动播放一次英式 `en-GB` 发音。
 - 首次载入、左侧点击、上下词按钮和滚动手势导致单词变化时都会触发自动发音。
 - 首页自动发音只在词库浏览模式执行，不影响练习页面的发音设置。
-- 首页例句卡片提供独立的“播放例句”按钮，固定使用英式 `en-GB` 朗读。
 - 例句卡片使用更高的最小高度，为按钮、英文例句和中文翻译保留充足空间。
 - 右侧详情底部提供“上一个单词”和“下一个单词”按钮。
 - 使用按钮或滚动手势切换后，左侧列表会同步选中并滚动到对应单词。
@@ -147,18 +131,18 @@ export default datas
 
 ## 6. 单词发音
 
-单词发音优先通过音频元素直接加载有道词典的真实发音：
+单词发音优先请求 Free Dictionary API，从返回数据的 `phonetics[].audio` 中选择真实词典音频：
 
 ```text
-https://dict.youdao.com/dictvoice?audio=<word>&type=<voiceType>
+https://api.dictionaryapi.dev/api/v2/entries/en/<word>
 ```
 
-`voiceType=1` 使用英式发音，`voiceType=2` 使用美式发音。实现不再通过 `fetch` 请求
-跨域 JSON 接口，而是让浏览器的音频元素直接播放媒体资源。网络不可用、词典没有对应
-发音或浏览器阻止播放时，会自动回退到浏览器原生 Web Speech API：
+程序根据音频 URL 中的英式或美式标记匹配当前口音，并缓存查询结果。请求超时、网络不可用、
+词典没有对应音频、只有另一种口音的音频或浏览器阻止播放时，会自动回退到浏览器原生
+Web Speech API：
 
-首页顶部提供“词典发音”开关，默认开启并保存到浏览器缓存。只有开关开启时才会访问
-在线词典音频；关闭后所有单词发音都直接使用系统语音，并立即停止正在播放的词典音频。
+首页顶部提供“接口发音”开关，默认开启并保存到浏览器缓存。只有开关开启时才会访问
+公共词典接口；关闭后所有词条发音都直接使用设备语音，并立即停止正在播放的词典音频。
 
 ```js
 const utterance = new SpeechSynthesisUtterance(text)
@@ -177,7 +161,7 @@ window.speechSynthesis.speak(utterance)
 注意：
 
 - 不在项目中存放大量单词音频文件。
-- 真实词典发音依赖网络；无法访问时仍可使用系统语音。
+- 真实词典发音依赖网络；接口无音频或无法访问时仍可使用设备语音。
 - 实际声音取决于浏览器和操作系统安装的语音包。
 
 ## 7. 单词练习模式
@@ -274,7 +258,7 @@ localStorage key: study-english:practice-state:v2
 - 每个词库首页最后浏览的单词位置。
 - 每个词库的错题单词名称。
 - 英式或美式发音偏好。
-- 在线词典发音开关，默认开启。
+- 公共词典接口发音开关，默认开启。
 - 自动朗读设置。
 - 记录进度设置。
 - 粒子背景设置。
@@ -288,15 +272,15 @@ localStorage key: study-english:practice-state:v2
 ```js
 {
   version: 2,
-  activeCategoryId: 'highSchoolEntrance',
+  activeCategoryId: 'high-school-entrance',
   progressByCategory: {
-    highSchoolEntrance: 10
+    'high-school-entrance': 10
   },
   browseProgressByCategory: {
-    highSchoolEntrance: 24
+    'high-school-entrance': 24
   },
   wrongWordsByCategory: {
-    highSchoolEntrance: ['mouth', 'clean']
+    'high-school-entrance': ['junior-high-vocabulary:mouth']
   },
   settings: {
     accent: 'en-GB',
@@ -391,16 +375,16 @@ base: '/StudyEnglish/'
 
 ## 11. 当前性能策略
 
-- 五个词库通过动态 `import()` 分包。
+- 16 个 JSON 数据集通过动态 `import()` 分包，并按 8 个分类加载。
 - 用户只有在点击某个标签时才加载对应数据。
 - 单词列表每批渲染 120 条，避免同时创建数千个 DOM 节点。
-- 常用单词词库体积较大，构建时会出现大于 500 KB 的 chunk 警告；当前属于已知警告，不影响构建成功。
+- 部分大型 JSON 词库构建后会出现大于 500 KB 的 chunk 警告；当前属于已知警告，不影响构建成功。
 - 粒子动画限制设备像素比最高为 2，避免高分辨率屏幕产生过高绘制开销。
 
 ## 12. 后续修改约束
 
 - 保持 Vue 3 Composition API 风格。
-- 不要把五个词库改成一次性静态导入。
+- 不要把 16 个数据集改成一次性静态导入。
 - 不要在列表中一次性渲染全部常用单词。
 - 不要同时引入 npm 和 pnpm 锁文件。
 - 不要删除 GitHub Pages 的 `/StudyEnglish/` 基础路径。

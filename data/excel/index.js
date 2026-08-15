@@ -1,0 +1,259 @@
+// Generated from the Excel files in English_Temp.
+// Use loadDataset(id) to load a dataset on demand in Vite applications.
+
+export const categories = [
+  {
+    "id": "tem8",
+    "label": "专八",
+    "datasets": [
+      "tem8-vocabulary"
+    ]
+  },
+  {
+    "id": "high-school-entrance",
+    "label": "中考",
+    "datasets": [
+      "junior-high-vocabulary",
+      "junior-high-phrases"
+    ]
+  },
+  {
+    "id": "cet6",
+    "label": "六级",
+    "datasets": [
+      "cet6-vocabulary"
+    ]
+  },
+  {
+    "id": "cet4",
+    "label": "四级",
+    "datasets": [
+      "cet4-6-phrases",
+      "cet4-vocabulary"
+    ]
+  },
+  {
+    "id": "toefl",
+    "label": "托福",
+    "datasets": [
+      "toefl-vocabulary",
+      "toefl-phrases"
+    ]
+  },
+  {
+    "id": "new-concept-english",
+    "label": "新概念英语",
+    "datasets": [
+      "new-concept-1",
+      "new-concept-2",
+      "new-concept-3",
+      "new-concept-4"
+    ]
+  },
+  {
+    "id": "ielts",
+    "label": "雅思",
+    "datasets": [
+      "ielts-vocabulary",
+      "ielts-phrases"
+    ]
+  },
+  {
+    "id": "college-entrance",
+    "label": "高考",
+    "datasets": [
+      "high-school-phrases",
+      "college-entrance-vocabulary"
+    ]
+  }
+];
+
+export const datasets = [
+  {
+    "id": "tem8-vocabulary",
+    "label": "专八词汇",
+    "categoryId": "tem8",
+    "categoryLabel": "专八",
+    "type": "vocabulary",
+    "count": 5604,
+    "source": "专八/专八词汇.xlsx",
+    "path": "./tem8/tem8-vocabulary.json"
+  },
+  {
+    "id": "junior-high-vocabulary",
+    "label": "初中词汇",
+    "categoryId": "high-school-entrance",
+    "categoryLabel": "中考",
+    "type": "vocabulary",
+    "count": 2140,
+    "source": "中考/初中词汇.xlsx",
+    "path": "./high-school-entrance/junior-high-vocabulary.json"
+  },
+  {
+    "id": "junior-high-phrases",
+    "label": "初中词组",
+    "categoryId": "high-school-entrance",
+    "categoryLabel": "中考",
+    "type": "phrase",
+    "count": 966,
+    "source": "中考/初中词组.xlsx",
+    "path": "./high-school-entrance/junior-high-phrases.json"
+  },
+  {
+    "id": "cet6-vocabulary",
+    "label": "六级词汇",
+    "categoryId": "cet6",
+    "categoryLabel": "六级",
+    "type": "vocabulary",
+    "count": 3279,
+    "source": "六级/六级词汇.xlsx",
+    "path": "./cet6/cet6-vocabulary.json"
+  },
+  {
+    "id": "cet4-6-phrases",
+    "label": "四六级词组",
+    "categoryId": "cet4",
+    "categoryLabel": "四级",
+    "type": "phrase",
+    "count": 2153,
+    "source": "四级/四六级词组.xlsx",
+    "path": "./cet4/cet4-6-phrases.json"
+  },
+  {
+    "id": "cet4-vocabulary",
+    "label": "四级词汇",
+    "categoryId": "cet4",
+    "categoryLabel": "四级",
+    "type": "vocabulary",
+    "count": 4681,
+    "source": "四级/四级词汇.xlsx",
+    "path": "./cet4/cet4-vocabulary.json"
+  },
+  {
+    "id": "toefl-vocabulary",
+    "label": "托福词汇",
+    "categoryId": "toefl",
+    "categoryLabel": "托福",
+    "type": "vocabulary",
+    "count": 3909,
+    "source": "托福/托福词汇.xlsx",
+    "path": "./toefl/toefl-vocabulary.json"
+  },
+  {
+    "id": "toefl-phrases",
+    "label": "托福词组",
+    "categoryId": "toefl",
+    "categoryLabel": "托福",
+    "type": "phrase",
+    "count": 1435,
+    "source": "托福/托福词组.xlsx",
+    "path": "./toefl/toefl-phrases.json"
+  },
+  {
+    "id": "new-concept-1",
+    "label": "新概念英语第一册（新版）",
+    "categoryId": "new-concept-english",
+    "categoryLabel": "新概念英语",
+    "type": "course",
+    "count": 908,
+    "source": "新概念英语/新概念英语第一册（新版）.xlsx",
+    "path": "./new-concept-english/new-concept-1.json"
+  },
+  {
+    "id": "new-concept-2",
+    "label": "新概念英语第二册（新版）",
+    "categoryId": "new-concept-english",
+    "categoryLabel": "新概念英语",
+    "type": "course",
+    "count": 862,
+    "source": "新概念英语/新概念英语第二册（新版）.xlsx",
+    "path": "./new-concept-english/new-concept-2.json"
+  },
+  {
+    "id": "new-concept-3",
+    "label": "新概念英语第三册（新版）",
+    "categoryId": "new-concept-english",
+    "categoryLabel": "新概念英语",
+    "type": "course",
+    "count": 1062,
+    "source": "新概念英语/新概念英语第三册（新版）.xlsx",
+    "path": "./new-concept-english/new-concept-3.json"
+  },
+  {
+    "id": "new-concept-4",
+    "label": "新概念英语第四册（新版）",
+    "categoryId": "new-concept-english",
+    "categoryLabel": "新概念英语",
+    "type": "course",
+    "count": 793,
+    "source": "新概念英语/新概念英语第四册（新版）.xlsx",
+    "path": "./new-concept-english/new-concept-4.json"
+  },
+  {
+    "id": "ielts-vocabulary",
+    "label": "雅思词汇",
+    "categoryId": "ielts",
+    "categoryLabel": "雅思",
+    "type": "vocabulary",
+    "count": 3486,
+    "source": "雅思/雅思词汇.xlsx",
+    "path": "./ielts/ielts-vocabulary.json"
+  },
+  {
+    "id": "ielts-phrases",
+    "label": "雅思词组",
+    "categoryId": "ielts",
+    "categoryLabel": "雅思",
+    "type": "phrase",
+    "count": 1267,
+    "source": "雅思/雅思词组.xlsx",
+    "path": "./ielts/ielts-phrases.json"
+  },
+  {
+    "id": "high-school-phrases",
+    "label": "高中词组",
+    "categoryId": "college-entrance",
+    "categoryLabel": "高考",
+    "type": "phrase",
+    "count": 1987,
+    "source": "高考/高中词组.xlsx",
+    "path": "./college-entrance/high-school-phrases.json"
+  },
+  {
+    "id": "college-entrance-vocabulary",
+    "label": "高考词汇",
+    "categoryId": "college-entrance",
+    "categoryLabel": "高考",
+    "type": "vocabulary",
+    "count": 3292,
+    "source": "高考/高考词汇.xlsx",
+    "path": "./college-entrance/college-entrance-vocabulary.json"
+  }
+];
+
+const loaders = {
+  "tem8-vocabulary": () => import("./tem8/tem8-vocabulary.json").then((module) => module.default),
+  "junior-high-vocabulary": () => import("./high-school-entrance/junior-high-vocabulary.json").then((module) => module.default),
+  "junior-high-phrases": () => import("./high-school-entrance/junior-high-phrases.json").then((module) => module.default),
+  "cet6-vocabulary": () => import("./cet6/cet6-vocabulary.json").then((module) => module.default),
+  "cet4-6-phrases": () => import("./cet4/cet4-6-phrases.json").then((module) => module.default),
+  "cet4-vocabulary": () => import("./cet4/cet4-vocabulary.json").then((module) => module.default),
+  "toefl-vocabulary": () => import("./toefl/toefl-vocabulary.json").then((module) => module.default),
+  "toefl-phrases": () => import("./toefl/toefl-phrases.json").then((module) => module.default),
+  "new-concept-1": () => import("./new-concept-english/new-concept-1.json").then((module) => module.default),
+  "new-concept-2": () => import("./new-concept-english/new-concept-2.json").then((module) => module.default),
+  "new-concept-3": () => import("./new-concept-english/new-concept-3.json").then((module) => module.default),
+  "new-concept-4": () => import("./new-concept-english/new-concept-4.json").then((module) => module.default),
+  "ielts-vocabulary": () => import("./ielts/ielts-vocabulary.json").then((module) => module.default),
+  "ielts-phrases": () => import("./ielts/ielts-phrases.json").then((module) => module.default),
+  "high-school-phrases": () => import("./college-entrance/high-school-phrases.json").then((module) => module.default),
+  "college-entrance-vocabulary": () => import("./college-entrance/college-entrance-vocabulary.json").then((module) => module.default),
+};
+
+export async function loadDataset(id) {
+  const loader = loaders[id];
+  if (!loader) throw new Error(`Unknown dataset: ${id}`);
+  return loader();
+}
+
+export default { categories, datasets };

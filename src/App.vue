@@ -1,42 +1,89 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ParticleBackground from './components/ParticleBackground.vue'
+import {
+  categories as excelCategories,
+  datasets as excelDatasets,
+  loadDataset,
+} from '../data/excel/index.js'
 
-const categories = [
-  {
-    id: 'highSchoolEntrance',
-    label: '中考单词',
-    description: '中考核心词汇',
-    load: () => import('../data/words/highSchoolEntranceWords.js'),
-  },
-  {
-    id: 'gradeOne',
-    label: '高一单词',
-    description: '高中一年级必修',
-    load: () => import('../data/words/gradeOneWords.js'),
-  },
-  {
-    id: 'gradeTwo',
-    label: '高二单词',
-    description: '高中二年级词汇',
-    load: () => import('../data/words/gradeTwoWords.js'),
-  },
-  {
-    id: 'collegeEntrance',
-    label: '高考单词',
-    description: '高考核心词汇',
-    load: () => import('../data/words/collegeEntranceWords.js'),
-  },
-  {
-    id: 'common',
-    label: '常用单词',
-    description: '英语常用词汇',
-    load: () => import('../data/words/commonWords.js'),
-  },
+const categoryNavigationOrder = [
+  'high-school-entrance',
+  'college-entrance',
+  'cet4',
+  'cet6',
+  'tem8',
+  'ielts',
+  'toefl',
+  'new-concept-english',
 ]
+const datasetTypeOrder = { vocabulary: 0, phrase: 1, course: 2 }
+const datasetById = new Map(excelDatasets.map((dataset) => [dataset.id, dataset]))
+const navigationGroups = [...excelCategories]
+  .sort((left, right) =>
+    categoryNavigationOrder.indexOf(left.id) - categoryNavigationOrder.indexOf(right.id),
+  )
+  .map((category) => ({
+    ...category,
+    options: category.datasets
+      .map((id) => datasetById.get(id))
+      .sort((left, right) =>
+        (datasetTypeOrder[left.type] ?? 9) - (datasetTypeOrder[right.type] ?? 9),
+      )
+      .map((dataset) => ({
+        ...dataset,
+        description: `${category.label} · ${dataset.label}，共 ${dataset.count.toLocaleString()} 条`,
+        async load() {
+          const entries = await loadDataset(dataset.id)
+          return {
+            default: entries.map((entry) => ({
+              ...entry,
+              __categoryId: category.id,
+              __categoryLabel: category.label,
+              __datasetId: dataset.id,
+              __datasetLabel: dataset.label,
+              __type: dataset.type,
+            })),
+          }
+        },
+      })),
+  }))
+const categories = navigationGroups.flatMap((group) => group.options)
+
+function wordKey(word) {
+  return `${word?.__datasetId ?? 'unknown'}:${word?.term ?? ''}`
+}
+
+function pronunciationFor(word, lang = 'en-GB') {
+  if (!word) return ''
+  return lang === 'en-US'
+    ? word.americanPronunciation || word.britishPronunciation || ''
+    : word.britishPronunciation || word.americanPronunciation || ''
+}
+
+function typeLabel(word) {
+  return {
+    vocabulary: '词汇',
+    phrase: '词组',
+    course: '课程词汇',
+  }[word?.__type] ?? '词条'
+}
+
+function searchValues(word) {
+  return [
+    word.term,
+    word.britishPronunciation,
+    word.americanPronunciation,
+    word.definition,
+    word.__datasetLabel,
+  ]
+}
 
 const STORAGE_KEY = 'study-english:practice-state:v2'
 const LEGACY_STORAGE_KEY = 'study-english:practice-state:v1'
+const DICTIONARY_API_BASE_URL = 'https://api.dictionaryapi.dev/api/v2/entries/en/'
+const DICTIONARY_API_TIMEOUT = 3500
+const dictionaryAudioCache = new Map()
 
 function readCachedState() {
   try {
@@ -68,6 +115,10 @@ const initialCategory = categories.find((item) => item.id === cachedState.active
   ?? categories[0]
 
 const activeCategory = ref(initialCategory)
+const activeNavigationGroup = computed(() =>
+  navigationGroups.find((group) => group.id === activeCategory.value.categoryId)
+    ?? navigationGroups[0],
+)
 const words = ref([])
 const selectedWord = ref(null)
 const detailPanel = ref(null)
@@ -128,6 +179,7 @@ let mobileCardAnimationTimer
 let mobileSwipeHintTimer
 let mobileCardCooldownUntil = 0
 let activeDictionaryAudio
+let activePronunciationController
 let pronunciationRequestId = 0
 let speechVoices = []
 
@@ -165,7 +217,7 @@ const filteredWords = computed(() => {
   if (!keyword) return words.value
 
   return words.value.filter((item) => {
-    return [item.B, item.C, item.D].some((value) =>
+    return searchValues(item).some((value) =>
       String(value ?? '').toLowerCase().includes(keyword),
     )
   })
@@ -207,7 +259,7 @@ const practiceWord = computed(() =>
   practiceCollection.value[currentPracticeIndex.value] ?? null,
 )
 const practiceAnswerTarget = computed(() =>
-  String(practiceWord.value?.B ?? '').replace(/[^a-z]/gi, '').toLowerCase(),
+  String(practiceWord.value?.term ?? '').replace(/[^a-z]/gi, '').toLowerCase(),
 )
 const answerSlots = computed(() =>
   [...practiceAnswerTarget.value].map((expected, index) => {
@@ -234,6 +286,16 @@ function restoreBrowseSelection(categoryId, entries = words.value) {
   nextTick(scrollSelectedWordIntoView)
 }
 
+function selectNavigationGroup(group) {
+  const currentOption = group.options.find((option) => option.id === activeCategory.value.id)
+  selectCategory(currentOption ?? group.options[0])
+}
+
+function handleDatasetSelect(event) {
+  const option = activeNavigationGroup.value.options.find((item) => item.id === event.target.value)
+  if (option) selectCategory(option)
+}
+
 async function selectCategory(category) {
   if (loading.value) return
   if (activeCategory.value.id === category.id && words.value.length) {
@@ -249,7 +311,7 @@ async function selectCategory(category) {
   }
 
   if (words.value.length) {
-    wrongWordsByCategory.value[activeCategory.value.id] = wrongWords.value.map((item) => item.B)
+    wrongWordsByCategory.value[activeCategory.value.id] = wrongWords.value.map(wordKey)
   }
 
   wrongPracticeMode.value = false
@@ -276,7 +338,9 @@ async function selectCategory(category) {
       : 0
     jumpNumber.value = practiceIndex.value + 1
     const savedWrongWords = new Set(wrongWordsByCategory.value[category.id] ?? [])
-    wrongWords.value = words.value.filter((item) => savedWrongWords.has(item.B))
+    wrongWords.value = words.value.filter((item) =>
+      savedWrongWords.has(wordKey(item)) || savedWrongWords.has(item.term),
+    )
     answer.value = ''
     feedback.value = null
     cacheReady = true
@@ -319,18 +383,14 @@ async function executeGlobalSearch() {
       })),
     )
 
-    globalSearchResults.value = loadedCategories.flatMap(({ category, entries }) =>
+    globalSearchResults.value = loadedCategories.flatMap(({ entries }) =>
       entries
         .filter((item) =>
-          [item.B, item.C, item.D].some((value) =>
+          searchValues(item).some((value) =>
             String(value ?? '').toLowerCase().includes(keyword),
           ),
         )
-        .map((item) => ({
-          ...item,
-          __categoryId: category.id,
-          __categoryLabel: category.label,
-        })),
+        .map((item) => item),
     )
     globalSearchKeyword.value = query.value.trim()
     globalSearchMode.value = true
@@ -389,7 +449,7 @@ function browseAdjacentWord(direction) {
     : Math.min(Math.max(currentIndex + direction, 0), list.length - 1)
 
   if (targetIndex === currentIndex) {
-    browseNavigationHint.value = direction > 0 ? '已经是最后一个单词' : '已经是第一个单词'
+    browseNavigationHint.value = direction > 0 ? '已经是最后一个词条' : '已经是第一个词条'
     return
   }
 
@@ -407,7 +467,7 @@ function requestNextWordByGesture(type) {
   if (Date.now() < browseNavigationCooldownUntil) return
 
   if (!canBrowseNext.value) {
-    browseNavigationHint.value = '已经是最后一个单词'
+    browseNavigationHint.value = '已经是最后一个词条'
     return
   }
 
@@ -418,8 +478,8 @@ function requestNextWordByGesture(type) {
 
   browseNavigationArmed.value = true
   browseNavigationHint.value = type === 'touch'
-    ? '再上滑一次，切换到下一个单词'
-    : '再向下滚动一次，切换到下一个单词'
+    ? '再上滑一次，切换到下一个词条'
+    : '再向下滚动一次，切换到下一个词条'
   window.clearTimeout(browseNavigationTimer)
   browseNavigationTimer = window.setTimeout(resetBrowseNavigation, 1200)
 }
@@ -472,12 +532,12 @@ function animateMobileWordChange(direction, gestureDirection) {
   if (Date.now() < mobileCardCooldownUntil || mobileCardPhase.value) return
 
   if (direction > 0 && !canBrowseNext.value) {
-    showMobileSwipeHint('已经是最后一个单词')
+    showMobileSwipeHint('已经是最后一个词条')
     resetMobileCardPosition()
     return
   }
   if (direction < 0 && !canBrowsePrevious.value) {
-    showMobileSwipeHint('已经是第一个单词')
+    showMobileSwipeHint('已经是第一个词条')
     resetMobileCardPosition()
     return
   }
@@ -588,6 +648,8 @@ function selectPreferredVoice(lang) {
 
 function stopDictionaryAudio() {
   pronunciationRequestId += 1
+  activePronunciationController?.abort()
+  activePronunciationController = undefined
   if (!activeDictionaryAudio) return
   activeDictionaryAudio.pause()
   activeDictionaryAudio.currentTime = 0
@@ -608,16 +670,58 @@ function speakWithSystemVoice(text, lang, rate) {
   window.speechSynthesis.speak(utterance)
 }
 
-function speakText(text, lang = accent.value, rate = 0.82) {
-  stopDictionaryAudio()
-  speakWithSystemVoice(text, lang, rate)
+function normalizeDictionaryAudioUrl(url) {
+  if (!url) return ''
+  if (url.startsWith('//')) return `https:${url}`
+  return url.startsWith('https://') ? url : ''
 }
 
-function getDictionaryAudioUrl(word, lang) {
-  const normalizedWord = String(word ?? '').trim().toLowerCase()
-  if (!/^[a-z]+(?:[-'][a-z]+)*$/.test(normalizedWord)) return ''
-  const voiceType = lang.toLowerCase() === 'en-gb' ? 1 : 2
-  return `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(normalizedWord)}&type=${voiceType}`
+function scoreDictionaryAudio(url, lang) {
+  const normalizedUrl = url.toLowerCase()
+  const wantsBritish = lang.toLowerCase() === 'en-gb'
+  const britishPattern = /(?:^|[_/.-])(?:gb|uk|british)(?:[_/.-]|$)/
+  const americanPattern = /(?:^|[_/.-])(?:us|usa|american)(?:[_/.-]|$)/
+  const matchesTarget = wantsBritish
+    ? britishPattern.test(normalizedUrl)
+    : americanPattern.test(normalizedUrl)
+  const matchesOther = wantsBritish
+    ? americanPattern.test(normalizedUrl)
+    : britishPattern.test(normalizedUrl)
+
+  if (matchesTarget) return 20
+  if (matchesOther) return -10
+  return 0
+}
+
+async function getPublicDictionaryAudioUrl(text, lang, signal) {
+  const normalizedText = String(text ?? '').trim().toLowerCase()
+  if (!/^[a-z]+(?:[-' ][a-z]+)*$/.test(normalizedText)) return ''
+
+  const cacheKey = `${lang.toLowerCase()}:${normalizedText}`
+  if (dictionaryAudioCache.has(cacheKey)) return dictionaryAudioCache.get(cacheKey)
+
+  const response = await fetch(`${DICTIONARY_API_BASE_URL}${encodeURIComponent(normalizedText)}`, {
+    headers: { Accept: 'application/json' },
+    signal,
+  })
+  if (!response.ok) {
+    if (response.status === 404) dictionaryAudioCache.set(cacheKey, '')
+    return ''
+  }
+
+  const entries = await response.json()
+  const audioUrls = (Array.isArray(entries) ? entries : [])
+    .flatMap((entry) => Array.isArray(entry.phonetics) ? entry.phonetics : [])
+    .map((phonetic) => normalizeDictionaryAudioUrl(phonetic.audio))
+    .filter(Boolean)
+  const audioUrl = [...new Set(audioUrls)]
+    .filter((url) => scoreDictionaryAudio(url, lang) >= 0)
+    .sort((left, right) =>
+      scoreDictionaryAudio(right, lang) - scoreDictionaryAudio(left, lang),
+    )[0] ?? ''
+
+  dictionaryAudioCache.set(cacheKey, audioUrl)
+  return audioUrl
 }
 
 async function speakDictionaryWord(text, lang) {
@@ -631,6 +735,9 @@ async function speakDictionaryWord(text, lang) {
   }
 
   const requestId = pronunciationRequestId
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), DICTIONARY_API_TIMEOUT)
+  activePronunciationController = controller
   let fallbackStarted = false
   const fallback = () => {
     if (fallbackStarted || requestId !== pronunciationRequestId) return
@@ -638,7 +745,17 @@ async function speakDictionaryWord(text, lang) {
     speakWithSystemVoice(text, lang, 0.82)
   }
 
-  const audioUrl = getDictionaryAudioUrl(text, lang)
+  let audioUrl = ''
+  try {
+    audioUrl = await getPublicDictionaryAudioUrl(text, lang, controller.signal)
+  } catch (error) {
+    if (error?.name !== 'AbortError') console.warn('公共词典发音查询失败，改用设备语音。', error)
+  } finally {
+    window.clearTimeout(timeoutId)
+    if (activePronunciationController === controller) activePronunciationController = undefined
+  }
+
+  if (requestId !== pronunciationRequestId) return
   if (!audioUrl) {
     fallback()
     return
@@ -650,7 +767,10 @@ async function speakDictionaryWord(text, lang) {
   audio.addEventListener('ended', () => {
     if (activeDictionaryAudio === audio) activeDictionaryAudio = undefined
   }, { once: true })
-  audio.addEventListener('error', fallback, { once: true })
+  audio.addEventListener('error', () => {
+    if (activeDictionaryAudio === audio) activeDictionaryAudio = undefined
+    fallback()
+  }, { once: true })
 
   try {
     await audio.play()
@@ -661,19 +781,11 @@ async function speakDictionaryWord(text, lang) {
 }
 
 function speakWord(lang) {
-  speakDictionaryWord(selectedWord.value?.B, lang)
+  speakDictionaryWord(selectedWord.value?.term, lang)
 }
 
 function speakPracticeWord() {
-  speakDictionaryWord(practiceWord.value?.B, accent.value)
-}
-
-function speakExample() {
-  speakText(practiceWord.value?.H, accent.value, 0.82)
-}
-
-function speakSelectedExample() {
-  speakText(selectedWord.value?.H, 'en-GB', 0.82)
+  speakDictionaryWord(practiceWord.value?.term, accent.value)
 }
 
 function openPractice() {
@@ -764,7 +876,7 @@ function startWrongPractice() {
 
 function completeWrongWord() {
   const completedWord = practiceWord.value
-  const removalIndex = wrongWords.value.findIndex((item) => item.B === completedWord?.B)
+  const removalIndex = wrongWords.value.findIndex((item) => wordKey(item) === wordKey(completedWord))
   if (removalIndex >= 0) wrongWords.value.splice(removalIndex, 1)
 
   answer.value = ''
@@ -833,7 +945,7 @@ function submitAnswer() {
   const expected = practiceAnswerTarget.value
   const actual = answer.value.trim().toLowerCase()
   if (!actual) {
-    feedback.value = { type: 'hint', text: '请输入单词后再提交' }
+    feedback.value = { type: 'hint', text: '请输入词条后再提交' }
     return
   }
 
@@ -852,8 +964,8 @@ function submitAnswer() {
   answerSlots.value.forEach((slot, index) => {
     if (slot.wrong) triggerLetterShake(index)
   })
-  feedback.value = { type: 'error', text: `再想一想，正确答案是 ${practiceWord.value.B}` }
-  if (trackErrors.value && !wrongWords.value.some((item) => item.B === practiceWord.value.B)) {
+  feedback.value = { type: 'error', text: `再想一想，正确答案是 ${practiceWord.value.term}` }
+  if (trackErrors.value && !wrongWords.value.some((item) => wordKey(item) === wordKey(practiceWord.value))) {
     wrongWords.value.push(practiceWord.value)
   }
 }
@@ -891,12 +1003,6 @@ function handleGlobalKeydown(event) {
     return
   }
 
-  if (event.key === '1') {
-    event.preventDefault()
-    speakExample()
-    return
-  }
-
   if (event.key === '2') {
     event.preventDefault()
     hideWord.value = !hideWord.value
@@ -920,7 +1026,7 @@ watch(selectedWord, (word) => {
         saveCachedState()
       }
     }
-    nextTick(() => speakDictionaryWord(word.B, 'en-GB'))
+    nextTick(() => speakDictionaryWord(word.term, 'en-GB'))
   }
 })
 
@@ -955,7 +1061,7 @@ watch(dictionaryPronunciationEnabled, (enabled) => {
 
 watch(wrongWords, (items) => {
   if (!cacheReady) return
-  wrongWordsByCategory.value[activeCategory.value.id] = items.map((item) => item.B)
+  wrongWordsByCategory.value[activeCategory.value.id] = items.map(wordKey)
   saveCachedState()
 }, { deep: true })
 
@@ -994,26 +1100,39 @@ selectCategory(initialCategory)
 
       <div class="nav-tabs" aria-label="词库分类">
         <button
-          v-for="category in categories"
-          :key="category.id"
-          :class="{ active: activeCategory.id === category.id }"
-          :aria-pressed="activeCategory.id === category.id"
-          @click="selectCategory(category)"
+          v-for="group in navigationGroups"
+          :key="group.id"
+          :class="{ active: activeNavigationGroup.id === group.id }"
+          :aria-pressed="activeNavigationGroup.id === group.id"
+          @click="selectNavigationGroup(group)"
         >
-          {{ category.label }}
+          {{ group.label }}
         </button>
       </div>
 
+      <label class="dataset-picker">
+        <span>{{ activeNavigationGroup.label }}词库</span>
+        <select :value="activeCategory.id" @change="handleDatasetSelect">
+          <option
+            v-for="option in activeNavigationGroup.options"
+            :key="option.id"
+            :value="option.id"
+          >
+            {{ option.label }}
+          </option>
+        </select>
+      </label>
+
       <label
         class="dictionary-audio-toggle"
-        :title="dictionaryPronunciationEnabled ? '已开启在线词典发音' : '已关闭在线词典发音，使用系统语音'"
+        :title="dictionaryPronunciationEnabled ? '优先使用公共词典音频，无音频时使用设备语音' : '已关闭接口发音，直接使用设备语音'"
       >
-        <span>词典发音</span>
+        <span>接口发音</span>
         <input
           v-model="dictionaryPronunciationEnabled"
           type="checkbox"
           role="switch"
-          aria-label="使用在线词典发音"
+          aria-label="优先使用公共词典音频"
         />
         <span class="dictionary-audio-track" aria-hidden="true">
           <span></span>
@@ -1031,7 +1150,7 @@ selectCategory(initialCategory)
       <div>
         <p class="eyebrow">VOCABULARY LIBRARY</p>
         <h1>{{ activeCategory.label }}</h1>
-        <p>{{ activeCategory.description }}，选择左侧单词查看完整记忆信息。</p>
+        <p>{{ activeCategory.description }}，选择左侧词条查看释义、英式音标和美式音标。</p>
       </div>
       <div class="search-controls">
         <label class="search-box">
@@ -1039,7 +1158,7 @@ selectCategory(initialCategory)
           <input
             v-model="query"
             type="search"
-            placeholder="搜索单词、音标或释义"
+            placeholder="搜索词条、音标、释义或来源"
             @input="handleSearchInput"
             @keydown.enter.prevent="executeGlobalSearch"
           />
@@ -1061,7 +1180,7 @@ selectCategory(initialCategory)
     >
       <aside class="word-panel desktop-word-panel">
         <div class="panel-heading">
-          <span>{{ globalSearchMode ? `全局搜索：${globalSearchKeyword}` : '单词列表' }}</span>
+          <span>{{ globalSearchMode ? `全局搜索：${globalSearchKeyword}` : '词条列表' }}</span>
           <span>{{ filteredWords.length }} 个结果</span>
         </div>
 
@@ -1070,19 +1189,19 @@ selectCategory(initialCategory)
         </div>
         <div v-else-if="globalSearchError" class="panel-state error">{{ globalSearchError }}</div>
         <div v-else-if="loadError" class="panel-state error">{{ loadError }}</div>
-        <div v-else-if="!filteredWords.length" class="panel-state">没有找到匹配的单词</div>
+        <div v-else-if="!filteredWords.length" class="panel-state">没有找到匹配的词条</div>
 
         <div v-else class="word-list">
           <button
             v-for="(word, index) in visibleWords"
-            :key="`${word.B}-${index}`"
+            :key="`${wordKey(word)}-${index}`"
             :class="{ selected: selectedWord === word }"
             @click="selectWord(word)"
           >
             <span class="word-index">{{ String(index + 1).padStart(2, '0') }}</span>
-            <span class="word-name">{{ word.B }}</span>
+            <span class="word-name">{{ word.term }}</span>
             <span class="word-phonetic">
-              {{ word.C }}<template v-if="word.__categoryLabel"> · {{ word.__categoryLabel }}</template>
+              {{ pronunciationFor(word) }}<template v-if="word.__datasetLabel"> · {{ word.__datasetLabel }}</template>
             </span>
             <span class="arrow">→</span>
           </button>
@@ -1104,12 +1223,13 @@ selectCategory(initialCategory)
           <div>
             <p class="detail-kicker">
               WORD DETAIL
-              <template v-if="selectedWord.__categoryLabel"> · {{ selectedWord.__categoryLabel }}</template>
+              <template v-if="selectedWord.__datasetLabel"> · {{ selectedWord.__datasetLabel }}</template>
             </p>
-            <h2>{{ selectedWord.B }}</h2>
-            <p class="phonetic">{{ selectedWord.C }}</p>
+            <h2>{{ selectedWord.term }}</h2>
+            <p class="phonetic">英 {{ selectedWord.britishPronunciation || '—' }}</p>
+            <p class="phonetic">美 {{ selectedWord.americanPronunciation || '—' }}</p>
           </div>
-          <div class="sound-actions" aria-label="单词发音">
+          <div class="sound-actions" aria-label="词条发音">
             <button
               class="sound-button"
               aria-label="英式发音"
@@ -1133,52 +1253,36 @@ selectCategory(initialCategory)
 
         <div class="meaning-card">
           <span>释义</span>
-          <p>{{ selectedWord.D || '暂无释义' }}</p>
+          <p>{{ selectedWord.definition || '暂无释义' }}</p>
         </div>
 
         <div class="detail-grid">
           <section>
-            <span class="detail-label">单词拆分</span>
-            <p class="split-word">{{ selectedWord.E || '—' }}</p>
+            <span class="detail-label">英式音标</span>
+            <p class="split-word">{{ selectedWord.britishPronunciation || '—' }}</p>
           </section>
           <section>
-            <span class="detail-label">拆分联想</span>
-            <p>{{ selectedWord.F || '—' }}</p>
+            <span class="detail-label">美式音标</span>
+            <p class="split-word">{{ selectedWord.americanPronunciation || '—' }}</p>
           </section>
           <section class="wide">
-            <span class="detail-label">记忆提示</span>
-            <p>{{ selectedWord.G || '—' }}</p>
+            <span class="detail-label">数据来源</span>
+            <p>{{ selectedWord.__datasetLabel }} · {{ typeLabel(selectedWord) }}</p>
           </section>
         </div>
 
-        <section class="example-card">
-          <div class="example-card-heading">
-            <span class="detail-label">EXAMPLE SENTENCE</span>
-            <button
-              aria-label="播放英式例句"
-              title="播放英式例句"
-              @click="speakSelectedExample"
-            >
-              <span aria-hidden="true">♪</span>
-              播放例句
-            </button>
-          </div>
-          <blockquote>{{ selectedWord.H || '暂无例句' }}</blockquote>
-          <p>{{ selectedWord.I || '暂无翻译' }}</p>
-        </section>
-
         <div class="browse-word-navigation">
           <p :class="{ visible: browseNavigationHint }" aria-live="polite">
-            {{ browseNavigationHint || '滚动到底部可快速切换单词' }}
+            {{ browseNavigationHint || '滚动到底部可快速切换词条' }}
           </p>
           <div>
             <button :disabled="!canBrowsePrevious" @click="browseAdjacentWord(-1)">
               <span aria-hidden="true">←</span>
-              上一个单词
+              上一个词条
             </button>
             <span>{{ selectedBrowseIndex + 1 }} / {{ filteredWords.length }}</span>
             <button :disabled="!canBrowseNext" @click="browseAdjacentWord(1)">
-              下一个单词
+              下一个词条
               <span aria-hidden="true">→</span>
             </button>
           </div>
@@ -1186,7 +1290,7 @@ selectCategory(initialCategory)
       </article>
 
       <article v-else class="detail-panel desktop-detail-panel empty-detail">
-        <p>从左侧选择一个单词查看详情</p>
+        <p>从左侧选择一个词条查看详情</p>
       </article>
 
       <div class="mobile-card-stage">
@@ -1196,7 +1300,7 @@ selectCategory(initialCategory)
         <div v-else-if="globalSearchError || loadError" class="mobile-card-state error">
           {{ globalSearchError || loadError }}
         </div>
-        <div v-else-if="!selectedWord" class="mobile-card-state">没有找到匹配的单词</div>
+        <div v-else-if="!selectedWord" class="mobile-card-state">没有找到匹配的词条</div>
 
         <template v-else>
           <div class="mobile-card-tools">
@@ -1206,7 +1310,7 @@ selectCategory(initialCategory)
             </button>
             <span>{{ selectedBrowseIndex + 1 }} / {{ filteredWords.length }}</span>
             <button @click="mobileDetailOpen = true">
-              记忆详情
+              词条详情
               <span aria-hidden="true">↑</span>
             </button>
           </div>
@@ -1220,32 +1324,24 @@ selectCategory(initialCategory)
             @pointercancel="resetMobileCardPosition"
           >
             <div class="mobile-card-meta">
-              <span>{{ selectedWord.__categoryLabel || activeCategory.label }}</span>
+              <span>{{ selectedWord.__datasetLabel || activeCategory.label }}</span>
               <span>WORD CARD</span>
             </div>
 
             <div class="mobile-card-word">
-              <h2>{{ selectedWord.B }}</h2>
-              <p>{{ selectedWord.C }}</p>
+              <h2>{{ selectedWord.term }}</h2>
+              <p>英 {{ selectedWord.britishPronunciation || '—' }}</p>
+              <p>美 {{ selectedWord.americanPronunciation || '—' }}</p>
             </div>
 
-            <div class="mobile-card-sounds" aria-label="单词发音">
+            <div class="mobile-card-sounds" aria-label="词条发音">
               <button aria-label="播放英式发音" @click="speakWord('en-GB')">♪ 英式</button>
               <button aria-label="播放美式发音" @click="speakWord('en-US')">♪ 美式</button>
             </div>
 
             <section class="mobile-card-meaning">
               <span>释义</span>
-              <p>{{ selectedWord.D || '暂无释义' }}</p>
-            </section>
-
-            <section class="mobile-card-example">
-              <div>
-                <span>EXAMPLE SENTENCE</span>
-                <button aria-label="播放英式例句" @click="speakSelectedExample">♪</button>
-              </div>
-              <blockquote>{{ selectedWord.H || '暂无例句' }}</blockquote>
-              <p>{{ selectedWord.I || '暂无翻译' }}</p>
+              <p>{{ selectedWord.definition || '暂无释义' }}</p>
             </section>
           </article>
 
@@ -1256,13 +1352,13 @@ selectCategory(initialCategory)
               :disabled="!canBrowsePrevious"
               @click="animateMobileWordChange(-1, 'right')"
             >
-              ← 上一个单词
+              ← 上一个词条
             </button>
             <button
               :disabled="!canBrowseNext"
               @click="animateMobileWordChange(1, 'left')"
             >
-              下一个单词 →
+              下一个词条 →
             </button>
           </div>
         </template>
@@ -1274,26 +1370,26 @@ selectCategory(initialCategory)
         role="presentation"
         @click.self="mobileWordListOpen = false"
       >
-        <section class="mobile-drawer mobile-list-drawer" role="dialog" aria-modal="true" aria-label="单词列表">
+        <section class="mobile-drawer mobile-list-drawer" role="dialog" aria-modal="true" aria-label="词条列表">
           <div class="mobile-drawer-handle"></div>
           <header>
             <div>
               <strong>{{ globalSearchMode ? `全局搜索：${globalSearchKeyword}` : activeCategory.label }}</strong>
               <span>{{ filteredWords.length }} 个结果</span>
             </div>
-            <button aria-label="关闭单词列表" @click="mobileWordListOpen = false">×</button>
+            <button aria-label="关闭词条列表" @click="mobileWordListOpen = false">×</button>
           </header>
           <div class="word-list mobile-word-list">
             <button
               v-for="(word, index) in visibleWords"
-              :key="`mobile-${word.B}-${index}`"
+              :key="`mobile-${wordKey(word)}-${index}`"
               :class="{ selected: selectedWord === word }"
               @click="selectMobileWord(word)"
             >
               <span class="word-index">{{ String(index + 1).padStart(2, '0') }}</span>
-              <span class="word-name">{{ word.B }}</span>
+              <span class="word-name">{{ word.term }}</span>
               <span class="word-phonetic">
-                {{ word.C }}<template v-if="word.__categoryLabel"> · {{ word.__categoryLabel }}</template>
+                {{ pronunciationFor(word) }}<template v-if="word.__datasetLabel"> · {{ word.__datasetLabel }}</template>
               </span>
               <span class="arrow">→</span>
             </button>
@@ -1310,35 +1406,31 @@ selectCategory(initialCategory)
         role="presentation"
         @click.self="mobileDetailOpen = false"
       >
-        <section class="mobile-drawer mobile-detail-drawer" role="dialog" aria-modal="true" aria-label="单词记忆详情">
+        <section class="mobile-drawer mobile-detail-drawer" role="dialog" aria-modal="true" aria-label="词条详情">
           <div class="mobile-drawer-handle"></div>
           <header>
             <div>
-              <strong>{{ selectedWord.B }}</strong>
-              <span>完整记忆详情</span>
+              <strong>{{ selectedWord.term }}</strong>
+              <span>{{ selectedWord.__datasetLabel }}</span>
             </div>
-            <button aria-label="关闭记忆详情" @click="mobileDetailOpen = false">×</button>
+            <button aria-label="关闭词条详情" @click="mobileDetailOpen = false">×</button>
           </header>
           <div class="mobile-detail-content">
             <section>
-              <span>单词拆分</span>
-              <p class="split-word">{{ selectedWord.E || '—' }}</p>
+              <span>英式音标</span>
+              <p class="split-word">{{ selectedWord.britishPronunciation || '—' }}</p>
             </section>
             <section>
-              <span>拆分联想</span>
-              <p>{{ selectedWord.F || '—' }}</p>
+              <span>美式音标</span>
+              <p class="split-word">{{ selectedWord.americanPronunciation || '—' }}</p>
             </section>
             <section>
-              <span>记忆提示</span>
-              <p>{{ selectedWord.G || '—' }}</p>
+              <span>释义</span>
+              <p>{{ selectedWord.definition || '暂无释义' }}</p>
             </section>
             <section>
-              <div class="mobile-detail-example-heading">
-                <span>例句与翻译</span>
-                <button aria-label="播放英式例句" @click="speakSelectedExample">♪ 播放</button>
-              </div>
-              <blockquote>{{ selectedWord.H || '暂无例句' }}</blockquote>
-              <p>{{ selectedWord.I || '暂无翻译' }}</p>
+              <span>数据来源</span>
+              <p>{{ selectedWord.__datasetLabel }} · {{ typeLabel(selectedWord) }}</p>
             </section>
           </div>
         </section>
@@ -1401,18 +1493,16 @@ selectCategory(initialCategory)
         <span v-if="wrongPracticeMode" class="wrong-practice-badge">
           错题练习 · 剩余 {{ wrongWords.length }} 词
         </span>
-        <p class="practice-meaning">{{ practiceWord.D }}</p>
+        <p class="practice-meaning">{{ practiceWord.definition }}</p>
         <div class="practice-title">
-          <h2 :class="{ concealed: hideWord }">{{ hideWord ? '••••••' : practiceWord.B }}</h2>
-          <span>{{ practiceWord.C }}</span>
+          <h2 :class="{ concealed: hideWord }">{{ hideWord ? '••••••' : practiceWord.term }}</h2>
+          <span>{{ pronunciationFor(practiceWord, accent) }}</span>
         </div>
 
         <dl class="practice-details">
-          <div><dt>拆分</dt><dd>{{ practiceWord.E || '—' }}</dd></div>
-          <div><dt>综合</dt><dd>{{ practiceWord.F || '—' }}</dd></div>
-          <div><dt>联想</dt><dd>{{ practiceWord.G || '—' }}</dd></div>
-          <div><dt>例句</dt><dd>{{ practiceWord.H || '—' }}</dd></div>
-          <div><dt>翻译</dt><dd>{{ practiceWord.I || '—' }}</dd></div>
+          <div><dt>英式音标</dt><dd>{{ practiceWord.britishPronunciation || '—' }}</dd></div>
+          <div><dt>美式音标</dt><dd>{{ practiceWord.americanPronunciation || '—' }}</dd></div>
+          <div><dt>来源</dt><dd>{{ practiceWord.__datasetLabel }} · {{ typeLabel(practiceWord) }}</dd></div>
         </dl>
 
         <form class="answer-form" @submit.prevent="submitAnswer">
@@ -1420,7 +1510,7 @@ selectCategory(initialCategory)
           <div
             class="letter-entry"
             role="group"
-            aria-label="单词字母输入区"
+            aria-label="词条字母输入区"
             @click="focusAnswerInput"
           >
             <span
@@ -1446,7 +1536,7 @@ selectCategory(initialCategory)
               autocapitalize="none"
               spellcheck="false"
               :maxlength="practiceAnswerTarget.length"
-              aria-label="输入单词字母"
+              aria-label="输入词条字母"
               @input="handleAnswerInput"
             />
           </div>
@@ -1454,10 +1544,9 @@ selectCategory(initialCategory)
         </form>
 
         <div class="practice-actions">
-          <button class="action-coral" @click="speakPracticeWord">♪ 播放单词 <kbd>ESC</kbd></button>
-          <button class="action-gold" @click="speakExample">♪ 播放例句 <kbd>1</kbd></button>
+          <button class="action-coral" @click="speakPracticeWord">♪ 播放词条 <kbd>ESC</kbd></button>
           <button class="action-blue" @click="hideWord = !hideWord">
-            {{ hideWord ? '显示单词' : '隐藏单词' }} <kbd>2</kbd>
+            {{ hideWord ? '显示词条' : '隐藏词条' }} <kbd>2</kbd>
           </button>
           <button class="action-green" @click="submitAnswer">提交 <kbd>Enter</kbd></button>
           <button class="action-muted" @click="nextPracticeWord">随机/下一词</button>
