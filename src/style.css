@@ -940,38 +940,103 @@ h2 {
 
 .jump-control button { border-radius: 0 5px 5px 0; color: #17314c; background: #eef4f8; }
 
-.practice-categories {
+.practice-library-switcher {
   position: absolute;
-  right: 30px;
+  right: max(24px, calc((100% - 940px) / 2));
   bottom: 24px;
-  left: 30px;
-  display: flex;
-  justify-content: center;
-  gap: 16px;
-}
-
-.practice-categories button {
-  padding: 8px 14px;
+  left: max(24px, calc((100% - 940px) / 2));
+  min-height: 70px;
+  padding: 10px 12px 10px 18px;
   display: flex;
   align-items: center;
-  gap: 7px;
-  border: 1px solid rgba(190, 215, 236, .55);
-  border-radius: 6px;
-  color: #98aec2;
-  background: rgba(6, 31, 59, .52);
+  justify-content: space-between;
+  gap: 20px;
+  border: 1px solid rgba(184, 215, 239, .22);
+  border-radius: 13px;
+  background: rgba(3, 27, 52, .8);
+  box-shadow: 0 14px 40px rgba(0, 9, 24, .2);
+  backdrop-filter: blur(12px);
+}
+
+.practice-library-current {
+  min-width: 150px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.practice-library-current > span {
+  width: 100%;
+  color: #7895ae;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .16em;
+}
+
+.practice-library-current strong { color: #f2f8fd; font-size: 13px; }
+.practice-library-current small { color: #65b6fa; font-size: 10px; }
+
+.practice-library-controls {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 36px minmax(100px, .65fr) minmax(190px, 1.35fr) 36px;
+  align-items: end;
+  gap: 8px;
+}
+
+.practice-library-controls label {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.practice-library-controls label > span {
+  color: #7895ae;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .12em;
+}
+
+.practice-library-controls select {
+  width: 100%;
+  height: 36px;
+  padding: 0 30px 0 10px;
+  overflow: hidden;
+  border: 1px solid rgba(190, 215, 236, .32);
+  border-radius: 7px;
+  outline: 0;
+  color: #dceaf6;
+  background: #0b3157;
   font-size: 10px;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.practice-categories button span {
-  width: 10px;
-  height: 10px;
-  border: 1px solid #b6c9da;
-  border-radius: 50%;
+.practice-library-controls select:focus-visible {
+  border-color: #61b4ff;
+  box-shadow: 0 0 0 3px rgba(63, 157, 241, .2);
 }
 
-.practice-categories button.active { color: #61b4ff; border-color: #3f9df1; }
-.practice-categories button.active span { border: 3px solid #cbe8ff; background: #3f9df1; }
+.practice-library-arrow {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid rgba(190, 215, 236, .34);
+  border-radius: 7px;
+  color: #dceaf6;
+  background: rgba(30, 89, 143, .5);
+  font-size: 16px;
+  transition: color .16s, background .16s, transform .16s;
+}
+
+.practice-library-arrow:hover:not(:disabled) {
+  color: #062840;
+  background: #61b4ff;
+  transform: translateY(-1px);
+}
+
+.practice-library-arrow:disabled { cursor: not-allowed; opacity: .28; }
 
 @media (max-width: 960px) {
   .nav { padding: 12px 24px 0; flex-wrap: wrap; gap: 0; }
@@ -985,7 +1050,7 @@ h2 {
   .practice-toolbar { padding: 15px 0; flex-wrap: wrap; }
   .practice-options { order: 3; width: 100%; margin: 0; justify-content: center; }
   .practice-card { margin-top: 44px; margin-bottom: 130px; }
-  .practice-categories { overflow-x: auto; justify-content: flex-start; }
+  .practice-library-switcher { right: 24px; left: 24px; }
 }
 
 @media (max-width: 720px) {
@@ -1297,15 +1362,22 @@ h2 {
   .practice-options { justify-content: flex-start; overflow-x: auto; padding-bottom: 3px; }
   .practice-card { margin-bottom: 32px; }
   .practice-details div { grid-template-columns: 48px 1fr; }
-  .practice-categories {
+  .practice-library-switcher {
     position: relative;
     right: auto;
     bottom: auto;
     left: auto;
     width: calc(100% - 28px);
     margin: 0 auto;
-    padding: 24px 0;
+    padding: 14px;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
   }
+
+  .practice-library-current { min-width: 0; }
+  .practice-library-current > span { width: auto; }
+  .practice-library-controls { grid-template-columns: 36px minmax(82px, .8fr) minmax(128px, 1.2fr) 36px; }
 }
 
 @keyframes mobile-leave-left {

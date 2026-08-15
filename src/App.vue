@@ -121,6 +121,14 @@ const activeNavigationGroup = computed(() =>
   navigationGroups.find((group) => group.id === activeCategory.value.categoryId)
     ?? navigationGroups[0],
 )
+const activePracticeDatasetIndex = computed(() =>
+  categories.findIndex((category) => category.id === activeCategory.value.id),
+)
+const hasPreviousPracticeDataset = computed(() => activePracticeDatasetIndex.value > 0)
+const hasNextPracticeDataset = computed(() =>
+  activePracticeDatasetIndex.value >= 0
+    && activePracticeDatasetIndex.value < categories.length - 1,
+)
 const words = ref([])
 const selectedWord = ref(null)
 const detailPanel = ref(null)
@@ -422,6 +430,26 @@ async function executeGlobalSearch() {
 async function selectPracticeCategory(category) {
   await selectCategory(category)
   if (autoRead.value) nextTick(speakPracticeWord)
+}
+
+async function selectPracticeNavigationGroup(groupId) {
+  const group = navigationGroups.find((item) => item.id === groupId)
+  if (!group) return
+
+  const nextCategory = group.options.find((option) => option.type === activeCategory.value.type)
+    ?? group.options[0]
+  if (nextCategory) await selectPracticeCategory(nextCategory)
+}
+
+async function selectPracticeDataset(datasetId) {
+  const category = categories.find((item) => item.id === datasetId)
+  if (category) await selectPracticeCategory(category)
+}
+
+async function switchPracticeDataset(direction) {
+  const targetIndex = activePracticeDatasetIndex.value + direction
+  const category = categories[targetIndex]
+  if (category) await selectPracticeCategory(category)
 }
 
 async function selectWord(word) {
@@ -1603,16 +1631,68 @@ selectCategory(initialCategory)
         </div>
       </div>
 
-      <footer class="practice-categories">
-        <button
-          v-for="category in categories"
-          :key="category.id"
-          :class="{ active: activeCategory.id === category.id }"
-          @click="selectPracticeCategory(category)"
-        >
-          <span></span>
-          {{ category.description }}
-        </button>
+      <footer class="practice-library-switcher" aria-label="切换练习词库">
+        <div class="practice-library-current">
+          <span>练习词库</span>
+          <strong>{{ activeCategory.label }}</strong>
+          <small>{{ words.length.toLocaleString() }} 条</small>
+        </div>
+
+        <div class="practice-library-controls">
+          <button
+            class="practice-library-arrow"
+            type="button"
+            aria-label="切换到上一个词库"
+            title="上一个词库"
+            :disabled="loading || !hasPreviousPracticeDataset"
+            @click="switchPracticeDataset(-1)"
+          >
+            ←
+          </button>
+
+          <label>
+            <span>分类</span>
+            <select
+              :value="activeNavigationGroup.id"
+              :disabled="loading"
+              aria-label="选择练习分类"
+              @change="selectPracticeNavigationGroup($event.target.value)"
+            >
+              <option v-for="group in navigationGroups" :key="group.id" :value="group.id">
+                {{ group.label }}
+              </option>
+            </select>
+          </label>
+
+          <label>
+            <span>内容</span>
+            <select
+              :value="activeCategory.id"
+              :disabled="loading"
+              aria-label="选择练习词库"
+              @change="selectPracticeDataset($event.target.value)"
+            >
+              <option
+                v-for="option in activeNavigationGroup.options"
+                :key="option.id"
+                :value="option.id"
+              >
+                {{ option.label }} · {{ option.count.toLocaleString() }} 条
+              </option>
+            </select>
+          </label>
+
+          <button
+            class="practice-library-arrow"
+            type="button"
+            aria-label="切换到下一个词库"
+            title="下一个词库"
+            :disabled="loading || !hasNextPracticeDataset"
+            @click="switchPracticeDataset(1)"
+          >
+            →
+          </button>
+        </div>
       </footer>
     </section>
   </main>
