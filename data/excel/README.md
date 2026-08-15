@@ -6,6 +6,7 @@
 
 - `index.js`：JavaScript 入口，导出分类信息、数据集信息和异步加载函数。
 - `manifest.json`：完整数据清单，包含分类、数据集路径、类型、来源及记录数。
+- `search-index.json`：仅包含词条名称的轻量全局搜索索引；选择结果后再加载完整词库。
 - 各分类目录：保存实际的 JSON 词库文件。
 
 ## 分类和文件
@@ -50,10 +51,13 @@
 ## JavaScript 读取
 
 ```js
-import { categories, datasets, loadDataset } from './data/excel/index.js'
+import { categories, datasets, loadDataset, loadSearchIndex } from './data/excel/index.js'
 
 const cet4Words = await loadDataset('cet4-vocabulary')
-console.log(categories, datasets, cet4Words[0])
+const searchIndex = await loadSearchIndex()
+console.log(categories, datasets, cet4Words[0], searchIndex.datasets['cet4-vocabulary'][0])
 ```
 
-`loadDataset(id)` 使用动态导入，仅在需要时加载对应 JSON。页面导航先选择考试或课程分类，再通过下拉框选择该分类下的词汇、词组或新概念英语册次；每次只展示和练习一个数据集。
+`loadDataset(id)` 使用动态导入并在当前页面会话中复用已加载结果，仅在需要时加载对应 JSON。`loadSearchIndex()` 只加载词条名称和词库归属，用于全局快速检索。页面导航先选择考试或课程分类，再通过下拉框选择该分类下的词汇、词组或新概念英语册次；每次只展示和练习一个数据集。
+
+修改词库后运行 `pnpm run generate:search-index` 可重新生成搜索索引；生产构建会在 `prebuild` 阶段自动执行该命令。

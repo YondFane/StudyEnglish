@@ -5,6 +5,7 @@ import {
   categories as excelCategories,
   datasets as excelDatasets,
   loadDataset,
+  loadSearchIndex,
 } from '../data/excel/index.js'
 
 const categoryNavigationOrder = [
@@ -128,6 +129,7 @@ const globalSearchLoading = ref(false)
 const globalSearchResults = ref([])
 const globalSearchKeyword = ref('')
 const globalSearchError = ref('')
+const selectedWordLoading = ref(false)
 const visibleCount = ref(120)
 const loading = ref(false)
 const loadError = ref('')
@@ -181,6 +183,7 @@ let mobileCardCooldownUntil = 0
 let activeDictionaryAudio
 let activePronunciationController
 let pronunciationRequestId = 0
+let selectedWordRequestId = 0
 let speechVoices = []
 
 function saveCachedState() {
@@ -376,27 +379,39 @@ async function executeGlobalSearch() {
   resetBrowseNavigation()
 
   try {
-    const loadedCategories = await Promise.all(
-      categories.map(async (category) => ({
-        category,
-        entries: (await category.load()).default,
-      })),
-    )
+    const searchIndex = await loadSearchIndex()
+    const results = []
 
-    globalSearchResults.value = loadedCategories.flatMap(({ entries }) =>
-      entries
-        .filter((item) =>
-          searchValues(item).some((value) =>
-            String(value ?? '').toLowerCase().includes(keyword),
-          ),
-        )
-        .map((item) => item),
-    )
+    for (const dataset of excelDatasets) {
+      const terms = searchIndex.datasets[dataset.id] ?? []
+      const sourceMatches = [dataset.label, dataset.categoryLabel]
+        .some((value) => value.toLowerCase().includes(keyword))
+
+      terms.forEach((term, rowIndex) => {
+        if (!sourceMatches && !term.toLowerCase().includes(keyword)) return
+
+        results.push({
+          term,
+          britishPronunciation: '',
+          americanPronunciation: '',
+          definition: '',
+          __categoryId: dataset.categoryId,
+          __categoryLabel: dataset.categoryLabel,
+          __datasetId: dataset.id,
+          __datasetLabel: dataset.label,
+          __type: dataset.type,
+          __searchRowIndex: rowIndex,
+        })
+      })
+    }
+
+    globalSearchResults.value = results
     globalSearchKeyword.value = query.value.trim()
     globalSearchMode.value = true
-    selectedWord.value = globalSearchResults.value[0] ?? null
+    selectedWord.value = null
+    if (results[0]) selectWord(results[0])
   } catch (error) {
-    globalSearchError.value = '全局词库加载失败，请稍后重试。'
+    globalSearchError.value = '全局搜索索引加载失败，请稍后重试。'
     console.error(error)
   } finally {
     globalSearchLoading.value = false
@@ -408,10 +423,42 @@ async function selectPracticeCategory(category) {
   if (autoRead.value) nextTick(speakPracticeWord)
 }
 
-function selectWord(word) {
+async function selectWord(word) {
+  const requestId = ++selectedWordRequestId
   selectedWord.value = word
+  selectedWordLoading.value = Number.isInteger(word?.__searchRowIndex)
   resetBrowseNavigation()
   nextTick(() => detailPanel.value?.scrollTo({ top: 0, behavior: 'smooth' }))
+
+  if (!selectedWordLoading.value) return
+
+  try {
+    const entries = await loadDataset(word.__datasetId)
+    const entry = entries[word.__searchRowIndex]
+    if (!entry) throw new Error(`Missing search result row: ${word.__datasetId}/${word.__searchRowIndex}`)
+
+    const hydratedWord = {
+      ...entry,
+      __categoryId: word.__categoryId,
+      __categoryLabel: word.__categoryLabel,
+      __datasetId: word.__datasetId,
+      __datasetLabel: word.__datasetLabel,
+      __type: word.__type,
+    }
+    const resultIndex = globalSearchResults.value.indexOf(word)
+    if (resultIndex >= 0) globalSearchResults.value.splice(resultIndex, 1, hydratedWord)
+    if (requestId === selectedWordRequestId) selectedWord.value = hydratedWord
+  } catch (error) {
+    if (requestId === selectedWordRequestId) {
+      selectedWord.value = {
+        ...word,
+        definition: '词条详情加载失败，请点击后重试。',
+      }
+    }
+    console.error(error)
+  } finally {
+    if (requestId === selectedWordRequestId) selectedWordLoading.value = false
+  }
 }
 
 function loadMore() {
@@ -454,7 +501,7 @@ function browseAdjacentWord(direction) {
   }
 
   visibleCount.value = Math.max(visibleCount.value, targetIndex + 1)
-  selectedWord.value = list[targetIndex]
+  selectWord(list[targetIndex])
   browseNavigationCooldownUntil = Date.now() + 600
   resetBrowseNavigation()
   nextTick(() => {
@@ -1026,7 +1073,9 @@ watch(selectedWord, (word) => {
         saveCachedState()
       }
     }
-    nextTick(() => speakDictionaryWord(word.term, 'en-GB'))
+    if (!Number.isInteger(word.__searchRowIndex)) {
+      nextTick(() => speakDictionaryWord(word.term, 'en-GB'))
+    }
   }
 })
 
@@ -1158,7 +1207,7 @@ selectCategory(initialCategory)
           <input
             v-model="query"
             type="search"
-            placeholder="搜索词条、音标、释义或来源"
+            placeholder="当前词库可搜释义；全库快速搜词条或来源"
             @input="handleSearchInput"
             @keydown.enter.prevent="executeGlobalSearch"
           />
@@ -1168,7 +1217,7 @@ selectCategory(initialCategory)
           :disabled="!query.trim() || globalSearchLoading"
           @click="executeGlobalSearch"
         >
-          {{ globalSearchLoading ? '搜索中…' : '全局搜索' }}
+          {{ globalSearchLoading ? '搜索中…' : '全库搜词' }}
         </button>
       </div>
     </header>
@@ -1185,7 +1234,7 @@ selectCategory(initialCategory)
         </div>
 
         <div v-if="loading || globalSearchLoading" class="panel-state">
-          {{ globalSearchLoading ? '正在搜索全部词库…' : '正在载入词库…' }}
+          {{ globalSearchLoading ? '正在加载轻量搜索索引…' : '正在载入词库…' }}
         </div>
         <div v-else-if="globalSearchError" class="panel-state error">{{ globalSearchError }}</div>
         <div v-else-if="loadError" class="panel-state error">{{ loadError }}</div>
@@ -1253,7 +1302,7 @@ selectCategory(initialCategory)
 
         <div class="meaning-card">
           <span>释义</span>
-          <p>{{ selectedWord.definition || '暂无释义' }}</p>
+          <p>{{ selectedWordLoading ? '正在载入词条详情…' : (selectedWord.definition || '暂无释义') }}</p>
         </div>
 
         <div class="detail-grid">
@@ -1295,7 +1344,7 @@ selectCategory(initialCategory)
 
       <div class="mobile-card-stage">
         <div v-if="loading || globalSearchLoading" class="mobile-card-state">
-          {{ globalSearchLoading ? '正在搜索全部词库…' : '正在载入词库…' }}
+          {{ globalSearchLoading ? '正在加载轻量搜索索引…' : '正在载入词库…' }}
         </div>
         <div v-else-if="globalSearchError || loadError" class="mobile-card-state error">
           {{ globalSearchError || loadError }}
@@ -1341,7 +1390,7 @@ selectCategory(initialCategory)
 
             <section class="mobile-card-meaning">
               <span>释义</span>
-              <p>{{ selectedWord.definition || '暂无释义' }}</p>
+              <p>{{ selectedWordLoading ? '正在载入词条详情…' : (selectedWord.definition || '暂无释义') }}</p>
             </section>
           </article>
 
@@ -1426,7 +1475,7 @@ selectCategory(initialCategory)
             </section>
             <section>
               <span>释义</span>
-              <p>{{ selectedWord.definition || '暂无释义' }}</p>
+              <p>{{ selectedWordLoading ? '正在载入词条详情…' : (selectedWord.definition || '暂无释义') }}</p>
             </section>
             <section>
               <span>数据来源</span>

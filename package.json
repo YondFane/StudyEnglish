@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "generate:search-index": "node scripts/generate-search-index.mjs",
+    "prebuild": "pnpm run generate:search-index",
     "build": "vite build",
     "preview": "vite preview"
   },

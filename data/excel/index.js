@@ -250,10 +250,31 @@ const loaders = {
   "college-entrance-vocabulary": () => import("./college-entrance/college-entrance-vocabulary.json").then((module) => module.default),
 };
 
-export async function loadDataset(id) {
+const datasetPromises = new Map();
+let searchIndexPromise;
+
+export function loadDataset(id) {
   const loader = loaders[id];
   if (!loader) throw new Error(`Unknown dataset: ${id}`);
-  return loader();
+  if (!datasetPromises.has(id)) {
+    datasetPromises.set(id, loader().catch((error) => {
+      datasetPromises.delete(id);
+      throw error;
+    }));
+  }
+  return datasetPromises.get(id);
+}
+
+export function loadSearchIndex() {
+  if (!searchIndexPromise) {
+    searchIndexPromise = import("./search-index.json")
+      .then((module) => module.default)
+      .catch((error) => {
+        searchIndexPromise = undefined;
+        throw error;
+      });
+  }
+  return searchIndexPromise;
 }
 
 export default { categories, datasets };
