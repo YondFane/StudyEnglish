@@ -131,18 +131,18 @@ const words = await loadDataset('cet4-vocabulary')
 
 ## 6. 单词发音
 
-单词发音优先请求 Free Dictionary API，从返回数据的 `phonetics[].audio` 中选择真实词典音频：
+单词发音按以下顺序自动回退：
+
+1. 按需加载 `data/audio/type-1/catalog.json`，查找并播放项目内的 MP3/WAV。
+2. 项目中没有对应文件或文件播放失败时，请求有道公共音频接口。
+3. 在线接口无法播放时，使用浏览器原生 Web Speech API。
 
 ```text
-https://api.dictionaryapi.dev/api/v2/entries/en/<word>
+https://dict.youdao.com/dictvoice?audio=<word>&type=<1|2>
 ```
 
-程序根据音频 URL 中的英式或美式标记匹配当前口音，并缓存查询结果。请求超时、网络不可用、
-词典没有对应音频、只有另一种口音的音频或浏览器阻止播放时，会自动回退到浏览器原生
-Web Speech API：
-
-首页顶部提供“接口发音”开关，默认开启并保存到浏览器缓存。只有开关开启时才会访问
-公共词典接口；关闭后所有词条发音都直接使用设备语音，并立即停止正在播放的词典音频。
+首页顶部提供“接口发音”开关，默认开启并保存到浏览器缓存。关闭后仍会优先播放项目音频，
+项目音频不存在或播放失败时直接使用设备语音，不再访问在线接口。
 
 ```js
 const utterance = new SpeechSynthesisUtterance(text)
@@ -160,8 +160,8 @@ window.speechSynthesis.speak(utterance)
 
 注意：
 
-- 不在项目中存放大量单词音频文件。
-- 真实词典发音依赖网络；接口无音频或无法访问时仍可使用设备语音。
+- `vite.config.js` 会在生产构建结束时把音频目录和目录映射复制到 `dist/data/audio/type-1`，供 GitHub Pages 使用。
+- 在线发音依赖网络；接口无音频或无法访问时仍可使用设备语音。
 - 实际声音取决于浏览器和操作系统安装的语音包。
 
 ## 7. 单词练习模式

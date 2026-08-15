@@ -83,9 +83,9 @@ function searchValues(word) {
 const STORAGE_KEY = 'study-english:practice-state:v2'
 const LEGACY_STORAGE_KEY = 'study-english:practice-state:v1'
 const PUBLIC_AUDIO_STREAM_BASE_URL = 'https://dict.youdao.com/dictvoice'
-const DICTIONARY_API_BASE_URL = 'https://api.dictionaryapi.dev/api/v2/entries/en/'
-const DICTIONARY_API_TIMEOUT = 3500
-const dictionaryAudioCache = new Map()
+const PROJECT_AUDIO_CATALOG_URL = `${import.meta.env.BASE_URL}data/audio/type-1/catalog.json`
+const PROJECT_AUDIO_ROOT_URL = `${import.meta.env.BASE_URL}data/audio/`
+let projectAudioIndexPromise
 
 function readCachedState() {
   try {
@@ -182,7 +182,6 @@ let mobileCardAnimationTimer
 let mobileSwipeHintTimer
 let mobileCardCooldownUntil = 0
 let activeDictionaryAudio
-let activePronunciationController
 let pronunciationRequestId = 0
 let selectedWordRequestId = 0
 let loadMoreFrame
@@ -704,8 +703,6 @@ function selectPreferredVoice(lang) {
 
 function stopDictionaryAudio() {
   pronunciationRequestId += 1
-  activePronunciationController?.abort()
-  activePronunciationController = undefined
   if (!activeDictionaryAudio) return
   activeDictionaryAudio.pause()
   activeDictionaryAudio.currentTime = 0
@@ -726,29 +723,6 @@ function speakWithSystemVoice(text, lang, rate) {
   window.speechSynthesis.speak(utterance)
 }
 
-function normalizeDictionaryAudioUrl(url) {
-  if (!url) return ''
-  if (url.startsWith('//')) return `https:${url}`
-  return url.startsWith('https://') ? url : ''
-}
-
-function scoreDictionaryAudio(url, lang) {
-  const normalizedUrl = url.toLowerCase()
-  const wantsBritish = lang.toLowerCase() === 'en-gb'
-  const britishPattern = /(?:^|[_/.-])(?:gb|uk|british)(?:[_/.-]|$)/
-  const americanPattern = /(?:^|[_/.-])(?:us|usa|american)(?:[_/.-]|$)/
-  const matchesTarget = wantsBritish
-    ? britishPattern.test(normalizedUrl)
-    : americanPattern.test(normalizedUrl)
-  const matchesOther = wantsBritish
-    ? americanPattern.test(normalizedUrl)
-    : britishPattern.test(normalizedUrl)
-
-  if (matchesTarget) return 20
-  if (matchesOther) return -10
-  return 0
-}
-
 function getPublicAudioStreamUrl(text, lang) {
   const normalizedText = String(text ?? '').trim().toLowerCase()
   if (!/^[a-z]+(?:[-' ][a-z]+)*$/.test(normalizedText)) return ''
@@ -757,35 +731,34 @@ function getPublicAudioStreamUrl(text, lang) {
   return `${PUBLIC_AUDIO_STREAM_BASE_URL}?audio=${encodeURIComponent(normalizedText)}&type=${voiceType}`
 }
 
-async function getPublicDictionaryAudioUrl(text, lang, signal) {
-  const normalizedText = String(text ?? '').trim().toLowerCase()
-  if (!/^[a-z]+(?:[-' ][a-z]+)*$/.test(normalizedText)) return ''
-
-  const cacheKey = `${lang.toLowerCase()}:${normalizedText}`
-  if (dictionaryAudioCache.has(cacheKey)) return dictionaryAudioCache.get(cacheKey)
-
-  const response = await fetch(`${DICTIONARY_API_BASE_URL}${encodeURIComponent(normalizedText)}`, {
-    headers: { Accept: 'application/json' },
-    signal,
-  })
-  if (!response.ok) {
-    if (response.status === 404) dictionaryAudioCache.set(cacheKey, '')
-    return ''
+async function loadProjectAudioIndex() {
+  if (!projectAudioIndexPromise) {
+    projectAudioIndexPromise = fetch(PROJECT_AUDIO_CATALOG_URL, {
+      headers: { Accept: 'application/json' },
+      cache: 'force-cache',
+    }).then(async (response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const catalog = await response.json()
+      return new Map(
+        (Array.isArray(catalog?.entries) ? catalog.entries : [])
+          .filter((entry) => entry?.key && entry?.file)
+          .map((entry) => [entry.key, entry.file]),
+      )
+    }).catch((error) => {
+      console.warn('项目音频目录加载失败，将使用在线接口。', error)
+      return new Map()
+    })
   }
+  return projectAudioIndexPromise
+}
 
-  const entries = await response.json()
-  const audioUrls = (Array.isArray(entries) ? entries : [])
-    .flatMap((entry) => Array.isArray(entry.phonetics) ? entry.phonetics : [])
-    .map((phonetic) => normalizeDictionaryAudioUrl(phonetic.audio))
-    .filter(Boolean)
-  const audioUrl = [...new Set(audioUrls)]
-    .filter((url) => scoreDictionaryAudio(url, lang) >= 0)
-    .sort((left, right) =>
-      scoreDictionaryAudio(right, lang) - scoreDictionaryAudio(left, lang),
-    )[0] ?? ''
+async function getProjectAudioUrl(text) {
+  const key = String(text ?? '').trim().toLocaleLowerCase('en-US')
+  if (!key || /\s/u.test(key)) return ''
 
-  dictionaryAudioCache.set(cacheKey, audioUrl)
-  return audioUrl
+  const audioIndex = await loadProjectAudioIndex()
+  const file = audioIndex.get(key)
+  return file ? `${PROJECT_AUDIO_ROOT_URL}${file.replace(/^\/+/, '')}` : ''
 }
 
 function playAudioUrl(audioUrl, requestId, onFailure) {
@@ -811,54 +784,38 @@ function playAudioUrl(audioUrl, requestId, onFailure) {
   audio.play().catch(handleFailure)
 }
 
-async function playDictionaryAudioFallback(text, lang, requestId, fallback) {
-  const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), DICTIONARY_API_TIMEOUT)
-  activePronunciationController = controller
-
-  let audioUrl = ''
-  try {
-    audioUrl = await getPublicDictionaryAudioUrl(text, lang, controller.signal)
-  } catch (error) {
-    if (error?.name !== 'AbortError') console.warn('备用词典音频查询失败，改用设备语音。', error)
-  } finally {
-    window.clearTimeout(timeoutId)
-    if (activePronunciationController === controller) activePronunciationController = undefined
-  }
-
-  if (requestId !== pronunciationRequestId) return
-  if (!audioUrl) {
-    fallback()
-    return
-  }
-
-  playAudioUrl(audioUrl, requestId, fallback)
-}
-
 function speakDictionaryWord(text, lang) {
   if (!text) return
 
   stopDictionaryAudio()
   window.speechSynthesis?.cancel()
-  if (!dictionaryPronunciationEnabled.value) {
-    speakWithSystemVoice(text, lang, 0.82)
-    return
-  }
 
   const requestId = pronunciationRequestId
-  let fallbackStarted = false
+  let onlineFallbackStarted = false
+  let deviceFallbackStarted = false
   const fallbackToDevice = () => {
-    if (fallbackStarted || requestId !== pronunciationRequestId) return
-    fallbackStarted = true
+    if (deviceFallbackStarted || requestId !== pronunciationRequestId) return
+    deviceFallbackStarted = true
     speakWithSystemVoice(text, lang, 0.82)
   }
-  const fallbackToDictionary = () => {
-    playDictionaryAudioFallback(text, lang, requestId, fallbackToDevice)
-  }
-  const directAudioUrl = getPublicAudioStreamUrl(text, lang)
+  const fallbackToOnlineAudio = () => {
+    if (onlineFallbackStarted || requestId !== pronunciationRequestId) return
+    onlineFallbackStarted = true
+    if (!dictionaryPronunciationEnabled.value) {
+      fallbackToDevice()
+      return
+    }
 
-  if (directAudioUrl) playAudioUrl(directAudioUrl, requestId, fallbackToDictionary)
-  else fallbackToDictionary()
+    const onlineAudioUrl = getPublicAudioStreamUrl(text, lang)
+    if (onlineAudioUrl) playAudioUrl(onlineAudioUrl, requestId, fallbackToDevice)
+    else fallbackToDevice()
+  }
+
+  getProjectAudioUrl(text).then((projectAudioUrl) => {
+    if (requestId !== pronunciationRequestId) return
+    if (projectAudioUrl) playAudioUrl(projectAudioUrl, requestId, fallbackToOnlineAudio)
+    else fallbackToOnlineAudio()
+  }).catch(fallbackToOnlineAudio)
 }
 
 function speakWord(lang) {
@@ -1209,14 +1166,14 @@ selectCategory(initialCategory)
 
       <label
         class="dictionary-audio-toggle"
-        :title="dictionaryPronunciationEnabled ? '优先使用公共音频流，失败时依次尝试词典音频和设备语音' : '已关闭接口发音，直接使用设备语音'"
+        :title="dictionaryPronunciationEnabled ? '优先播放项目音频；不存在或播放失败时使用在线接口，最后使用设备语音' : '优先播放项目音频；不存在或播放失败时直接使用设备语音'"
       >
         <span>接口发音</span>
         <input
           v-model="dictionaryPronunciationEnabled"
           type="checkbox"
           role="switch"
-          aria-label="优先使用公共音频"
+          aria-label="项目音频不可用时使用在线接口"
         />
         <span class="dictionary-audio-track" aria-hidden="true">
           <span></span>

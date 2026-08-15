@@ -1,0 +1,20 @@
+$ node scripts/download-audio.mjs "--" "--concurrency=4" "--request-interval=120" "--max-attempts=3"
+node:internal/fs/promises:785
+  return await PromisePrototypeThen(
+         ^
+
+Error: EPERM: operation not permitted, rename 'D:\TRAE_WORKSPACE\GitHub\StudyEnglish\data\audio\type-1\progress.json.16980.tmp' -> 'D:\TRAE_WORKSPACE\GitHub\StudyEnglish\data\audio\type-1\progress.json'
+    at async rename (node:internal/fs/promises:785:10)
+    at async writeJsonAtomic (file:///D:/TRAE_WORKSPACE/GitHub/StudyEnglish/scripts/download-audio.mjs:155:3)
+    at async saveProgress (file:///D:/TRAE_WORKSPACE/GitHub/StudyEnglish/scripts/download-audio.mjs:222:3)
+    at async worker (file:///D:/TRAE_WORKSPACE/GitHub/StudyEnglish/scripts/download-audio.mjs:272:38)
+    at async Promise.all (index 2)
+    at async file:///D:/TRAE_WORKSPACE/GitHub/StudyEnglish/scripts/download-audio.mjs:287:1 {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'rename',
+  path: 'D:\\TRAE_WORKSPACE\\GitHub\\StudyEnglish\\data\\audio\\type-1\\progress.json.16980.tmp',
+  dest: 'D:\\TRAE_WORKSPACE\\GitHub\\StudyEnglish\\data\\audio\\type-1\\progress.json'
+}
+
+Node.js v24.15.0

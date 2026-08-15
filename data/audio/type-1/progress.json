@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "audioType": 1,
+  "total": 12751,
+  "success": 12751,
+  "failed": 0,
+  "pending": 0,
+  "bytes": 379772279,
+  "processedThisRun": 0,
+  "successThisRun": 0,
+  "failedThisRun": 0,
+  "startedAt": "2026-08-15T18:34:19.726Z",
+  "updatedAt": "2026-08-15T18:34:19.741Z",
+  "stopped": false,
+  "catalog": "catalog.json",
+  "journal": "download-records.jsonl"
+}

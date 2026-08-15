@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "download:audio": "node scripts/download-audio.mjs",
+    "normalize:audio": "node scripts/normalize-audio-extensions.mjs",
     "generate:search-index": "node scripts/generate-search-index.mjs",
     "prebuild": "pnpm run generate:search-index",
     "build": "vite build",
