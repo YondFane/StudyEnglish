@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import { copyFile, cp, mkdir } from 'node:fs/promises'
+import { copyFile, cp, mkdir, rm } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
 
 function publishProjectAudio() {
@@ -35,6 +35,10 @@ function publishProjectAudio() {
         next()
       })
     },
+    async buildStart() {
+      // Keep the large audio tree between local builds, but remove stale hashed app chunks.
+      await rm(resolve(outputRoot, 'assets'), { recursive: true, force: true })
+    },
     async closeBundle() {
       const sourceRoot = resolve(projectRoot, 'data/audio/type-1')
       const destinationRoot = resolve(outputRoot, 'data/audio/type-1')
@@ -43,7 +47,8 @@ function publishProjectAudio() {
         copyFile(resolve(sourceRoot, 'catalog.json'), resolve(destinationRoot, 'catalog.json')),
         cp(resolve(sourceRoot, 'files'), resolve(destinationRoot, 'files'), {
           recursive: true,
-          force: true,
+          force: false,
+          errorOnExist: false,
         }),
       ])
     },
@@ -52,5 +57,10 @@ function publishProjectAudio() {
 
 export default defineConfig({
   base: '/StudyEnglish/',
+  build: {
+    // dist/data/audio contains thousands of files and may be in use by the local preview.
+    // The audio plugin incrementally copies missing files instead of deleting the tree.
+    emptyOutDir: false,
+  },
   plugins: [vue(), publishProjectAudio()],
 })

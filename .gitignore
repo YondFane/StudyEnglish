@@ -1,0 +1,7 @@
+.env
+.env.*
+!.env.example
+data/examples/*.tmp
+data/examples/sources/
+data/examples/runner-*.log
+data/examples/runner-state.json

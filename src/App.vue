@@ -76,6 +76,8 @@ function searchValues(word) {
     word.britishPronunciation,
     word.americanPronunciation,
     word.definition,
+    word.exampleSentence,
+    word.exampleTranslation,
     word.__datasetLabel,
   ]
 }
@@ -165,6 +167,7 @@ const progressByCategory = ref(cachedState.progressByCategory ?? {})
 const browseProgressByCategory = ref(cachedState.browseProgressByCategory ?? {})
 const wrongWordsByCategory = ref(cachedState.wrongWordsByCategory ?? {})
 const browseNavigationArmed = ref(false)
+const mobileLibraryHeaderExpanded = ref(false)
 const browseNavigationHint = ref('')
 const isMobileCardMode = ref(false)
 const mobileWordListOpen = ref(false)
@@ -279,10 +282,36 @@ const answerSlots = computed(() =>
     return {
       expected,
       value,
+      correct: Boolean(value) && value.toLowerCase() === expected,
       wrong: Boolean(value) && value.toLowerCase() !== expected,
     }
   }),
 )
+const practiceWordCharacters = computed(() => {
+  let answerIndex = 0
+  return [...String(practiceWord.value?.term ?? '')].map((character, displayIndex) => {
+    const isLetter = /[a-z]/i.test(character)
+    if (!isLetter) {
+      return {
+        key: `${displayIndex}-${character}`,
+        display: character === ' ' ? '\u00a0' : character,
+        separator: true,
+        correct: false,
+      }
+    }
+
+    const inputIndex = answerIndex
+    answerIndex += 1
+    const typedCharacter = String(answer.value[inputIndex] ?? '').toLowerCase()
+    const correct = Boolean(typedCharacter) && typedCharacter === character.toLowerCase()
+    return {
+      key: `${displayIndex}-${character}`,
+      display: hideWord.value && !correct ? '•' : character,
+      separator: false,
+      correct,
+    }
+  })
+})
 const pendingLetterIndex = computed(() =>
   answer.value.length < practiceAnswerTarget.value.length ? answer.value.length : -1,
 )
@@ -752,8 +781,8 @@ function speakWithSystemVoice(text, lang, rate) {
 }
 
 function getPublicAudioStreamUrl(text, lang) {
-  const normalizedText = String(text ?? '').trim().toLowerCase()
-  if (!/^[a-z]+(?:[-' ][a-z]+)*$/.test(normalizedText)) return ''
+  const normalizedText = String(text ?? '').trim().replace(/\s+/g, ' ')
+  if (!/[a-z]/i.test(normalizedText) || normalizedText.length > 320) return ''
 
   const voiceType = lang.toLowerCase() === 'en-us' ? 2 : 1
   return `${PUBLIC_AUDIO_STREAM_BASE_URL}?audio=${encodeURIComponent(normalizedText)}&type=${voiceType}`
@@ -852,6 +881,10 @@ function speakWord(lang) {
 
 function speakPracticeWord() {
   speakDictionaryWord(practiceWord.value?.term, accent.value)
+}
+
+function speakExampleSentence(sentence, lang = 'en-GB') {
+  speakDictionaryWord(sentence, lang)
 }
 
 function openPractice() {
@@ -1215,30 +1248,54 @@ selectCategory(initialCategory)
       <span class="word-total">{{ words.length.toLocaleString() }} words</span>
     </nav>
 
-    <header v-if="viewMode === 'library'" class="library-header">
-      <div>
-        <p class="eyebrow">VOCABULARY LIBRARY</p>
-        <h1>{{ activeCategory.label }}</h1>
-        <p>{{ activeCategory.description }}，选择左侧词条查看释义、英式音标和美式音标。</p>
-      </div>
-      <div class="search-controls">
-        <label class="search-box">
-          <span aria-hidden="true">⌕</span>
-          <input
-            v-model="query"
-            type="search"
-            placeholder="当前词库可搜释义；全库快速搜词条或来源"
-            @input="handleSearchInput"
-            @keydown.enter.prevent="executeGlobalSearch"
-          />
-        </label>
-        <button
-          class="global-search-button"
-          :disabled="!query.trim() || globalSearchLoading"
-          @click="executeGlobalSearch"
-        >
-          {{ globalSearchLoading ? '搜索中…' : '全库搜词' }}
-        </button>
+    <header
+      v-if="viewMode === 'library'"
+      :class="['library-header', { 'mobile-collapsed': !mobileLibraryHeaderExpanded }]"
+    >
+      <button
+        class="mobile-library-header-toggle"
+        type="button"
+        :aria-expanded="mobileLibraryHeaderExpanded"
+        aria-controls="mobile-library-header-content"
+        :aria-label="mobileLibraryHeaderExpanded ? '收起词库介绍和搜索' : '展开词库介绍和搜索'"
+        @click="mobileLibraryHeaderExpanded = !mobileLibraryHeaderExpanded"
+      >
+        <span>
+          <small>当前词库</small>
+          <strong>{{ activeCategory.label }}</strong>
+          <em>{{ words.length.toLocaleString() }} 条</em>
+        </span>
+        <span class="mobile-library-toggle-action">
+          {{ mobileLibraryHeaderExpanded ? '收起' : '展开' }}
+          <b aria-hidden="true">⌄</b>
+        </span>
+      </button>
+
+      <div id="mobile-library-header-content" class="library-header-content">
+        <div class="library-heading">
+          <p class="eyebrow">VOCABULARY LIBRARY</p>
+          <h1>{{ activeCategory.label }}</h1>
+          <p>{{ activeCategory.description }}，选择左侧词条查看释义、英式音标和美式音标。</p>
+        </div>
+        <div class="search-controls">
+          <label class="search-box">
+            <span aria-hidden="true">⌕</span>
+            <input
+              v-model="query"
+              type="search"
+              placeholder="当前词库可搜释义；全库快速搜词条或来源"
+              @input="handleSearchInput"
+              @keydown.enter.prevent="executeGlobalSearch"
+            />
+          </label>
+          <button
+            class="global-search-button"
+            :disabled="!query.trim() || globalSearchLoading"
+            @click="executeGlobalSearch"
+          >
+            {{ globalSearchLoading ? '搜索中…' : '全库搜词' }}
+          </button>
+        </div>
       </div>
     </header>
 
@@ -1337,6 +1394,23 @@ selectCategory(initialCategory)
           </section>
         </div>
 
+        <section v-if="selectedWord.exampleSentence" class="example-card word-example-card">
+          <div class="example-card-heading">
+            <span class="detail-label">EXAMPLE · 例句</span>
+            <button
+              type="button"
+              aria-label="播放英文例句"
+              title="播放英文例句"
+              @click="speakExampleSentence(selectedWord.exampleSentence, 'en-GB')"
+            >
+              <span aria-hidden="true">♪</span>
+              播放例句
+            </button>
+          </div>
+          <blockquote>{{ selectedWord.exampleSentence }}</blockquote>
+          <p>{{ selectedWord.exampleTranslation }}</p>
+        </section>
+
         <div class="browse-word-navigation">
           <p :class="{ visible: browseNavigationHint }" aria-live="polite">
             {{ browseNavigationHint || '滚动到底部可快速切换词条' }}
@@ -1408,6 +1482,21 @@ selectCategory(initialCategory)
             <section class="mobile-card-meaning">
               <span>释义</span>
               <p>{{ selectedWordLoading ? '正在载入词条详情…' : (selectedWord.definition || '暂无释义') }}</p>
+            </section>
+            <section v-if="selectedWord.exampleSentence" class="mobile-card-example">
+              <div>
+                <span>例句</span>
+                <button
+                  type="button"
+                  aria-label="播放英文例句"
+                  title="播放英文例句"
+                  @click.stop="speakExampleSentence(selectedWord.exampleSentence, 'en-GB')"
+                >
+                  <span aria-hidden="true">♪</span>
+                </button>
+              </div>
+              <blockquote>{{ selectedWord.exampleSentence }}</blockquote>
+              <p>{{ selectedWord.exampleTranslation }}</p>
             </section>
           </article>
 
@@ -1495,6 +1584,20 @@ selectCategory(initialCategory)
               <span>数据来源</span>
               <p>{{ selectedWord.__datasetLabel }} · {{ typeLabel(selectedWord) }}</p>
             </section>
+            <section v-if="selectedWord.exampleSentence">
+              <div class="mobile-detail-example-heading">
+                <span>例句</span>
+                <button
+                  type="button"
+                  aria-label="播放英文例句"
+                  @click="speakExampleSentence(selectedWord.exampleSentence, 'en-GB')"
+                >
+                  ♪ 播放
+                </button>
+              </div>
+              <blockquote>{{ selectedWord.exampleSentence }}</blockquote>
+              <p>{{ selectedWord.exampleTranslation }}</p>
+            </section>
           </div>
         </section>
       </div>
@@ -1556,16 +1659,43 @@ selectCategory(initialCategory)
         <span v-if="wrongPracticeMode" class="wrong-practice-badge">
           错题练习 · 剩余 {{ wrongWords.length }} 词
         </span>
-        <p class="practice-meaning">{{ practiceWord.definition }}</p>
         <div class="practice-title">
-          <h2 :class="{ concealed: hideWord }">{{ hideWord ? '••••••' : practiceWord.term }}</h2>
+          <h2 :class="{ concealed: hideWord }" :aria-label="practiceWord.term">
+            <span
+              v-for="character in practiceWordCharacters"
+              :key="character.key"
+              aria-hidden="true"
+              :class="[
+                'practice-word-letter',
+                { correct: character.correct, separator: character.separator },
+              ]"
+            >{{ character.display }}</span>
+          </h2>
           <span>{{ pronunciationFor(practiceWord, accent) }}</span>
         </div>
+        <p class="practice-meaning">{{ practiceWord.definition }}</p>
 
         <dl class="practice-details">
           <div><dt>英式音标</dt><dd>{{ practiceWord.britishPronunciation || '—' }}</dd></div>
           <div><dt>美式音标</dt><dd>{{ practiceWord.americanPronunciation || '—' }}</dd></div>
           <div><dt>来源</dt><dd>{{ practiceWord.__datasetLabel }} · {{ typeLabel(practiceWord) }}</dd></div>
+          <div v-if="practiceWord.exampleSentence" class="practice-example-detail">
+            <dt>例句</dt>
+            <dd>
+              <span class="practice-example-line">
+                <span>{{ practiceWord.exampleSentence }}</span>
+                <button
+                  type="button"
+                  aria-label="播放英文例句"
+                  title="播放英文例句"
+                  @click="speakExampleSentence(practiceWord.exampleSentence, accent)"
+                >
+                  ♪ 播放
+                </button>
+              </span>
+              <small>{{ practiceWord.exampleTranslation }}</small>
+            </dd>
+          </div>
         </dl>
 
         <form class="answer-form" @submit.prevent="submitAnswer">
@@ -1583,6 +1713,7 @@ selectCategory(initialCategory)
                 'letter-slot',
                 {
                   filled: slot.value,
+                  correct: slot.correct,
                   wrong: slot.wrong,
                   waiting: pendingLetterIndex === index,
                 },

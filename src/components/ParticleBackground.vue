@@ -52,7 +52,7 @@ function draw() {
 
       context.beginPath()
       context.arc(point.x, point.y, 2.3, 0, Math.PI * 2)
-      context.fillStyle = 'rgba(132, 204, 82, .78)'
+      context.fillStyle = 'rgba(236, 110, 76, .42)'
       context.fill()
 
       for (let targetIndex = index + 1; targetIndex < points.length; targetIndex += 1) {
@@ -63,7 +63,7 @@ function draw() {
         context.beginPath()
         context.moveTo(point.x, point.y)
         context.lineTo(target.x, target.y)
-        context.strokeStyle = `rgba(112, 164, 205, ${0.13 * (1 - distance / 135)})`
+        context.strokeStyle = `rgba(24, 50, 45, ${0.11 * (1 - distance / 135)})`
         context.lineWidth = 1
         context.stroke()
       }

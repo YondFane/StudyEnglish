@@ -158,11 +158,15 @@ StudyEnglish/
 ├─ .github/workflows/deploy.yml       # GitHub Pages 自动部署
 ├─ data/
 │  ├─ excel/                          # JSON 词库、清单和轻量搜索索引
+│  ├─ examples/                       # AI 例句任务、结果和生成进度
 │  └─ audio/type-1/                   # 音频目录、文件和续传记录
 ├─ public/
 │  └─ sw.js                           # 运行时缓存 Service Worker
 ├─ scripts/
 │  ├─ download-audio.mjs              # 音频下载与断点续传
+│  ├─ generate-examples.mjs           # AI 例句生成与断点续传
+│  ├─ start-example-generation.mjs     # 隐藏后台启动例句生成
+│  ├─ apply-examples.mjs              # 把成功例句写入各词库
 │  ├─ generate-search-index.mjs       # 生成轻量搜索索引
 │  └─ normalize-audio-extensions.mjs  # 修正音频真实扩展名
 ├─ src/
@@ -205,6 +209,48 @@ pnpm preview
 
 ```bash
 pnpm run generate:search-index
+```
+
+建立去重例句任务目录（不调用模型）：
+
+```bash
+pnpm run prepare:examples
+```
+
+首次使用时下载 Tatoeba CC0 与 WordNet，并建立本地语料索引：
+
+```powershell
+pnpm run prepare:example-sources
+```
+
+原始语料和索引保存在 `data/examples/sources`，已从 Git 中排除，不会部署到 GitHub Pages。例句按“Tatoeba CC0 英文例句 → WordNet 英文例句 → Ollama 从零生成”的顺序选择；语料库英文例句的中文翻译由 Ollama 本地生成。
+
+开放语料的来源、授权和 WordNet 完整免责声明见 `data/examples/THIRD_PARTY_NOTICES.md`。发布包含 WordNet 例句的数据时必须保留该文件。
+
+本地启动 Ollama 并安装 `qwen3:8b` 后，先生成 5 条检查质量：
+
+```powershell
+pnpm run generate:examples -- --limit=5 --batch-size=5
+```
+
+默认配置使用 `http://127.0.0.1:11434` 的 Ollama，不需要 API Key。模型、上下文和服务地址可以复制 `.env.example` 为 `.env.local` 后调整；进度会逐批写入 `data/examples`，中断后再次运行即可继续。
+
+全量任务建议用隐藏后台进程执行，关闭当前终端后仍可继续：
+
+```powershell
+pnpm run start:example-generation
+Get-Content data/examples/progress.json
+Get-Content data/examples/runner-output.log -Tail 20
+```
+
+后台进程信息保存在 `data/examples/runner-state.json`，重复执行启动命令不会创建第二个生成进程。
+
+后台生成默认采用 2 路进程内并发，并通过串行落盘队列保护例句文件、失败记录和断点。不要手动启动多个生成脚本；需要调整时使用 `--concurrency=1|2`。
+
+把已经成功生成的例句合并到词库：
+
+```bash
+pnpm run apply:examples
 ```
 
 下载缺失音频或继续上次中断的任务：

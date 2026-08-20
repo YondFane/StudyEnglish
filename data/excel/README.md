@@ -1,5 +1,7 @@
 # Excel 词库数据说明
 
+词库中的部分例句可能来自 Tatoeba CC0 或 Princeton WordNet 3.0，来源与授权说明见 `../examples/THIRD_PARTY_NOTICES.md`。发布或复制包含这些例句的词库时必须一并保留该说明。
+
 本目录保存从 `English_Temp` 中 16 个 Excel 文件转换得到的词库，共 8 个分类、37,824 条记录。数据采用 UTF-8 JSON，供 StudyEnglish 的导航、词库浏览、全局搜索和练习页面按需加载。
 
 ## 入口文件
@@ -39,7 +41,9 @@
   "term": "author",
   "britishPronunciation": "[ˈɔːθə(r)]",
   "americanPronunciation": "[ˈɔːθər]",
-  "definition": "n. 作者；作家；创始人"
+  "definition": "n. 作者；作家；创始人",
+  "exampleSentence": "The author signed copies of her new book.",
+  "exampleTranslation": "这位作者在她的新书上签名。"
 }
 ```
 
@@ -47,6 +51,8 @@
 - `britishPronunciation`：英式音标，源数据缺失时为 `null`。
 - `americanPronunciation`：美式音标，源数据缺失时为 `null`。
 - `definition`：中文释义，多个词性可用换行分隔。
+- `exampleSentence`：AI 生成的英文例句；尚未生成时字段不存在。
+- `exampleTranslation`：例句的简体中文翻译；尚未生成时字段不存在。
 
 ## JavaScript 读取
 

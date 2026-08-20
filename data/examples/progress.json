@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "total": 18339,
+  "completed": 16856,
+  "failed": 1483,
+  "pending": 0,
+  "completionPercent": 91.91,
+  "provider": "ollama",
+  "model": "qwen3:8b",
+  "updatedAt": "2026-08-18T00:09:21.849Z",
+  "checkpoint": {
+    "workerId": 1,
+    "batchNumber": 713,
+    "catalogOffset": 7120,
+    "term": "Zulu",
+    "processedAt": "2026-08-18T00:09:21.765Z"
+  }
+}
