@@ -85,9 +85,9 @@ function searchValues(word) {
 const STORAGE_KEY = 'study-english:practice-state:v2'
 const LEGACY_STORAGE_KEY = 'study-english:practice-state:v1'
 const PUBLIC_AUDIO_STREAM_BASE_URL = 'https://dict.youdao.com/dictvoice'
-const PROJECT_AUDIO_CATALOG_URL = `${import.meta.env.BASE_URL}data/audio/type-1/catalog.json`
 const PROJECT_AUDIO_ROOT_URL = `${import.meta.env.BASE_URL}data/audio/`
-let projectAudioIndexPromise
+const DEVICE_SPEECH_RATE = 0.72
+const projectAudioIndexPromises = new Map()
 
 function readCachedState() {
   try {
@@ -159,6 +159,7 @@ const wrongPracticeIndex = ref(0)
 const wrongPracticeCompleted = ref(false)
 const answer = ref('')
 const answerInput = ref(null)
+const practiceKeyboardOpen = ref(false)
 const letterShakeVersions = ref({})
 const feedback = ref(null)
 const wrongWords = ref([])
@@ -191,6 +192,9 @@ let mobilePointerStartY = 0
 let mobilePointerStartAt = 0
 let mobileCardAnimationTimer
 let mobileSwipeHintTimer
+let practiceFocusScrollTimer
+let practiceViewportBaselineHeight = 0
+let practiceViewportContracted = false
 let mobileCardCooldownUntil = 0
 let activeDictionaryAudio
 let pronunciationRequestId = 0
@@ -788,9 +792,14 @@ function getPublicAudioStreamUrl(text, lang) {
   return `${PUBLIC_AUDIO_STREAM_BASE_URL}?audio=${encodeURIComponent(normalizedText)}&type=${voiceType}`
 }
 
-async function loadProjectAudioIndex() {
-  if (!projectAudioIndexPromise) {
-    projectAudioIndexPromise = fetch(PROJECT_AUDIO_CATALOG_URL, {
+function audioTypeForLanguage(lang) {
+  return String(lang ?? '').toLowerCase() === 'en-us' ? 2 : 1
+}
+
+async function loadProjectAudioIndex(audioType) {
+  if (!projectAudioIndexPromises.has(audioType)) {
+    const catalogUrl = `${PROJECT_AUDIO_ROOT_URL}type-${audioType}/catalog.json`
+    const indexPromise = fetch(catalogUrl, {
       headers: { Accept: 'application/json' },
       cache: 'force-cache',
     }).then(async (response) => {
@@ -802,18 +811,19 @@ async function loadProjectAudioIndex() {
           .map((entry) => [entry.key, entry.file]),
       )
     }).catch((error) => {
-      console.warn('项目音频目录加载失败，将使用在线接口。', error)
+      console.warn(`项目 type-${audioType} 音频目录加载失败，将使用在线接口。`, error)
       return new Map()
     })
+    projectAudioIndexPromises.set(audioType, indexPromise)
   }
-  return projectAudioIndexPromise
+  return projectAudioIndexPromises.get(audioType)
 }
 
-async function getProjectAudioUrl(text) {
+async function getProjectAudioUrl(text, lang) {
   const key = String(text ?? '').trim().toLocaleLowerCase('en-US')
   if (!key || /\s/u.test(key)) return ''
 
-  const audioIndex = await loadProjectAudioIndex()
+  const audioIndex = await loadProjectAudioIndex(audioTypeForLanguage(lang))
   const file = audioIndex.get(key)
   return file ? `${PROJECT_AUDIO_ROOT_URL}${file.replace(/^\/+/, '')}` : ''
 }
@@ -847,28 +857,28 @@ function speakDictionaryWord(text, lang) {
   stopDictionaryAudio()
   window.speechSynthesis?.cancel()
 
+  if (!dictionaryPronunciationEnabled.value) {
+    speakWithSystemVoice(text, lang, DEVICE_SPEECH_RATE)
+    return
+  }
+
   const requestId = pronunciationRequestId
   let onlineFallbackStarted = false
   let deviceFallbackStarted = false
   const fallbackToDevice = () => {
     if (deviceFallbackStarted || requestId !== pronunciationRequestId) return
     deviceFallbackStarted = true
-    speakWithSystemVoice(text, lang, 0.82)
+    speakWithSystemVoice(text, lang, DEVICE_SPEECH_RATE)
   }
   const fallbackToOnlineAudio = () => {
     if (onlineFallbackStarted || requestId !== pronunciationRequestId) return
     onlineFallbackStarted = true
-    if (!dictionaryPronunciationEnabled.value) {
-      fallbackToDevice()
-      return
-    }
-
     const onlineAudioUrl = getPublicAudioStreamUrl(text, lang)
     if (onlineAudioUrl) playAudioUrl(onlineAudioUrl, requestId, fallbackToDevice)
     else fallbackToDevice()
   }
 
-  getProjectAudioUrl(text).then((projectAudioUrl) => {
+  getProjectAudioUrl(text, lang).then((projectAudioUrl) => {
     if (requestId !== pronunciationRequestId) return
     if (projectAudioUrl) playAudioUrl(projectAudioUrl, requestId, fallbackToOnlineAudio)
     else fallbackToOnlineAudio()
@@ -1011,6 +1021,47 @@ function returnToNormalPractice() {
 
 function focusAnswerInput() {
   answerInput.value?.focus()
+}
+
+function scrollPracticeInputIntoView(delay = 0) {
+  window.clearTimeout(practiceFocusScrollTimer)
+  practiceFocusScrollTimer = window.setTimeout(() => {
+    if (!practiceKeyboardOpen.value) return
+    answerInput.value?.closest('.answer-form')?.scrollIntoView({
+      block: 'center',
+      behavior: 'smooth',
+    })
+  }, delay)
+}
+
+function syncPracticeViewportHeight() {
+  const viewportHeight = Math.round(window.visualViewport?.height || window.innerHeight)
+  if (!practiceKeyboardOpen.value) {
+    practiceViewportBaselineHeight = viewportHeight
+    practiceViewportContracted = false
+  } else {
+    practiceViewportBaselineHeight = Math.max(practiceViewportBaselineHeight, viewportHeight)
+    if (viewportHeight < practiceViewportBaselineHeight * 0.9) {
+      practiceViewportContracted = true
+    } else if (practiceViewportContracted) {
+      practiceKeyboardOpen.value = false
+      practiceViewportContracted = false
+    }
+  }
+  document.documentElement.style.setProperty('--practice-viewport-height', `${viewportHeight}px`)
+  if (practiceKeyboardOpen.value) scrollPracticeInputIntoView(80)
+}
+
+function handlePracticeInputFocus() {
+  syncPracticeViewportHeight()
+  practiceKeyboardOpen.value = true
+  scrollPracticeInputIntoView(180)
+}
+
+function handlePracticeInputBlur() {
+  practiceKeyboardOpen.value = false
+  practiceViewportContracted = false
+  window.clearTimeout(practiceFocusScrollTimer)
 }
 
 function triggerLetterShake(index) {
@@ -1173,6 +1224,8 @@ onMounted(() => {
   mobileMediaQuery = window.matchMedia('(max-width: 720px)')
   updateMobileCardMode(mobileMediaQuery)
   mobileMediaQuery.addEventListener?.('change', updateMobileCardMode)
+  syncPracticeViewportHeight()
+  window.visualViewport?.addEventListener('resize', syncPracticeViewportHeight)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
@@ -1180,9 +1233,12 @@ onBeforeUnmount(() => {
   stopDictionaryAudio()
   window.speechSynthesis?.cancel()
   mobileMediaQuery?.removeEventListener?.('change', updateMobileCardMode)
+  window.visualViewport?.removeEventListener('resize', syncPracticeViewportHeight)
+  document.documentElement.style.removeProperty('--practice-viewport-height')
   window.clearTimeout(browseNavigationTimer)
   window.clearTimeout(mobileCardAnimationTimer)
   window.clearTimeout(mobileSwipeHintTimer)
+  window.clearTimeout(practiceFocusScrollTimer)
   window.cancelAnimationFrame(loadMoreFrame)
 })
 
@@ -1205,10 +1261,14 @@ selectCategory(initialCategory)
           v-for="group in navigationGroups"
           :key="group.id"
           :class="{ active: activeNavigationGroup.id === group.id }"
+          :aria-label="group.label"
           :aria-pressed="activeNavigationGroup.id === group.id"
           @click="selectNavigationGroup(group)"
         >
-          {{ group.label }}
+          <span class="nav-label-desktop">{{ group.label }}</span>
+          <span class="nav-label-mobile" aria-hidden="true">
+            {{ group.id === 'new-concept-english' ? '新概念' : group.label }}
+          </span>
         </button>
       </div>
 
@@ -1227,14 +1287,14 @@ selectCategory(initialCategory)
 
       <label
         class="dictionary-audio-toggle"
-        :title="dictionaryPronunciationEnabled ? '优先播放项目音频；不存在或播放失败时使用在线接口，最后使用设备语音' : '优先播放项目音频；不存在或播放失败时直接使用设备语音'"
+        :title="dictionaryPronunciationEnabled ? '使用项目音频；不存在或播放失败时使用在线接口，最后使用设备语音' : '已关闭接口发音，直接使用设备语音'"
       >
         <span>接口发音</span>
         <input
           v-model="dictionaryPronunciationEnabled"
           type="checkbox"
           role="switch"
-          aria-label="项目音频不可用时使用在线接口"
+          :aria-label="dictionaryPronunciationEnabled ? '关闭接口发音并改用设备语音' : '开启项目音频和在线接口发音'"
         />
         <span class="dictionary-audio-track" aria-hidden="true">
           <span></span>
@@ -1252,25 +1312,6 @@ selectCategory(initialCategory)
       v-if="viewMode === 'library'"
       :class="['library-header', { 'mobile-collapsed': !mobileLibraryHeaderExpanded }]"
     >
-      <button
-        class="mobile-library-header-toggle"
-        type="button"
-        :aria-expanded="mobileLibraryHeaderExpanded"
-        aria-controls="mobile-library-header-content"
-        :aria-label="mobileLibraryHeaderExpanded ? '收起词库介绍和搜索' : '展开词库介绍和搜索'"
-        @click="mobileLibraryHeaderExpanded = !mobileLibraryHeaderExpanded"
-      >
-        <span>
-          <small>当前词库</small>
-          <strong>{{ activeCategory.label }}</strong>
-          <em>{{ words.length.toLocaleString() }} 条</em>
-        </span>
-        <span class="mobile-library-toggle-action">
-          {{ mobileLibraryHeaderExpanded ? '收起' : '展开' }}
-          <b aria-hidden="true">⌄</b>
-        </span>
-      </button>
-
       <div id="mobile-library-header-content" class="library-header-content">
         <div class="library-heading">
           <p class="eyebrow">VOCABULARY LIBRARY</p>
@@ -1349,8 +1390,8 @@ selectCategory(initialCategory)
               <template v-if="selectedWord.__datasetLabel"> · {{ selectedWord.__datasetLabel }}</template>
             </p>
             <h2>{{ selectedWord.term }}</h2>
-            <p class="phonetic">英 {{ selectedWord.britishPronunciation || '—' }}</p>
-            <p class="phonetic">美 {{ selectedWord.americanPronunciation || '—' }}</p>
+            <p v-if="selectedWord.britishPronunciation" class="phonetic">英 {{ selectedWord.britishPronunciation }}</p>
+            <p v-if="selectedWord.americanPronunciation" class="phonetic">美 {{ selectedWord.americanPronunciation }}</p>
           </div>
           <div class="sound-actions" aria-label="词条发音">
             <button
@@ -1380,13 +1421,13 @@ selectCategory(initialCategory)
         </div>
 
         <div class="detail-grid">
-          <section>
+          <section v-if="selectedWord.britishPronunciation">
             <span class="detail-label">英式音标</span>
-            <p class="split-word">{{ selectedWord.britishPronunciation || '—' }}</p>
+            <p class="split-word">{{ selectedWord.britishPronunciation }}</p>
           </section>
-          <section>
+          <section v-if="selectedWord.americanPronunciation">
             <span class="detail-label">美式音标</span>
-            <p class="split-word">{{ selectedWord.americanPronunciation || '—' }}</p>
+            <p class="split-word">{{ selectedWord.americanPronunciation }}</p>
           </section>
           <section class="wide">
             <span class="detail-label">数据来源</span>
@@ -1449,8 +1490,18 @@ selectCategory(initialCategory)
               词表
             </button>
             <span>{{ selectedBrowseIndex + 1 }} / {{ filteredWords.length }}</span>
+            <button
+              type="button"
+              :class="{ active: mobileLibraryHeaderExpanded }"
+              :aria-expanded="mobileLibraryHeaderExpanded"
+              aria-controls="mobile-library-header-content"
+              @click="mobileLibraryHeaderExpanded = !mobileLibraryHeaderExpanded"
+            >
+              <span aria-hidden="true">⌕</span>
+              {{ mobileLibraryHeaderExpanded ? '收起' : '搜索' }}
+            </button>
             <button @click="mobileDetailOpen = true">
-              词条详情
+              详情
               <span aria-hidden="true">↑</span>
             </button>
           </div>
@@ -1470,8 +1521,8 @@ selectCategory(initialCategory)
 
             <div class="mobile-card-word">
               <h2>{{ selectedWord.term }}</h2>
-              <p>英 {{ selectedWord.britishPronunciation || '—' }}</p>
-              <p>美 {{ selectedWord.americanPronunciation || '—' }}</p>
+              <p v-if="selectedWord.britishPronunciation">英 {{ selectedWord.britishPronunciation }}</p>
+              <p v-if="selectedWord.americanPronunciation">美 {{ selectedWord.americanPronunciation }}</p>
             </div>
 
             <div class="mobile-card-sounds" aria-label="词条发音">
@@ -1568,13 +1619,13 @@ selectCategory(initialCategory)
             <button aria-label="关闭词条详情" @click="mobileDetailOpen = false">×</button>
           </header>
           <div class="mobile-detail-content">
-            <section>
+            <section v-if="selectedWord.britishPronunciation">
               <span>英式音标</span>
-              <p class="split-word">{{ selectedWord.britishPronunciation || '—' }}</p>
+              <p class="split-word">{{ selectedWord.britishPronunciation }}</p>
             </section>
-            <section>
+            <section v-if="selectedWord.americanPronunciation">
               <span>美式音标</span>
-              <p class="split-word">{{ selectedWord.americanPronunciation || '—' }}</p>
+              <p class="split-word">{{ selectedWord.americanPronunciation }}</p>
             </section>
             <section>
               <span>释义</span>
@@ -1603,7 +1654,10 @@ selectCategory(initialCategory)
       </div>
     </section>
 
-    <section v-else class="practice-view">
+    <section
+      v-else
+      :class="['practice-view', { 'practice-keyboard-open': practiceKeyboardOpen }]"
+    >
       <ParticleBackground :enabled="particlesEnabled" />
 
       <header class="practice-toolbar">
@@ -1656,6 +1710,10 @@ selectCategory(initialCategory)
       </div>
 
       <div v-else-if="practiceWord" class="practice-card">
+        <div class="practice-compact-meta" aria-hidden="true">
+          <span>{{ activeCategory.label }}</span>
+          <span>{{ currentPracticeIndex + 1 }} / {{ practiceTotal }}</span>
+        </div>
         <span v-if="wrongPracticeMode" class="wrong-practice-badge">
           错题练习 · 剩余 {{ wrongWords.length }} 词
         </span>
@@ -1671,13 +1729,13 @@ selectCategory(initialCategory)
               ]"
             >{{ character.display }}</span>
           </h2>
-          <span>{{ pronunciationFor(practiceWord, accent) }}</span>
+          <span v-if="pronunciationFor(practiceWord, accent)">{{ pronunciationFor(practiceWord, accent) }}</span>
         </div>
         <p class="practice-meaning">{{ practiceWord.definition }}</p>
 
         <dl class="practice-details">
-          <div><dt>英式音标</dt><dd>{{ practiceWord.britishPronunciation || '—' }}</dd></div>
-          <div><dt>美式音标</dt><dd>{{ practiceWord.americanPronunciation || '—' }}</dd></div>
+          <div v-if="practiceWord.britishPronunciation"><dt>英式音标</dt><dd>{{ practiceWord.britishPronunciation }}</dd></div>
+          <div v-if="practiceWord.americanPronunciation"><dt>美式音标</dt><dd>{{ practiceWord.americanPronunciation }}</dd></div>
           <div><dt>来源</dt><dd>{{ practiceWord.__datasetLabel }} · {{ typeLabel(practiceWord) }}</dd></div>
           <div v-if="practiceWord.exampleSentence" class="practice-example-detail">
             <dt>例句</dt>
@@ -1728,9 +1786,12 @@ selectCategory(initialCategory)
               type="text"
               autocomplete="off"
               autocapitalize="none"
+              enterkeyhint="done"
               spellcheck="false"
               :maxlength="practiceAnswerTarget.length"
               aria-label="输入词条字母"
+              @focus="handlePracticeInputFocus"
+              @blur="handlePracticeInputBlur"
               @input="handleAnswerInput"
             />
           </div>

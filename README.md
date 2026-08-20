@@ -39,11 +39,11 @@ StudyEnglish 是一个基于 Vue 3 和 Vite 构建的纯前端英语词汇学习
 
 单词播放采用三级回退策略：
 
-1. 通过 `data/audio/type-1/catalog.json` 查找项目内的 MP3/WAV 文件并直接播放。
+1. 英式通过 `data/audio/type-1/catalog.json`、美式通过 `data/audio/type-2/catalog.json` 查找项目内的 MP3/WAV 文件并直接播放。
 2. 项目音频不存在或播放失败时，请求有道公共音频接口。
 3. 在线接口失败或浏览器阻止播放时，使用设备的 Web Speech API。
 
-页面支持英式 `en-GB` 和美式 `en-US`。关闭“接口发音”后仍会优先播放项目音频，本地音频不可用时直接使用设备语音，不再请求在线接口。
+页面支持英式 `en-GB` 和美式 `en-US`。开启“接口发音”时使用“项目音频 → 在线接口 → 设备语音”的回退顺序；关闭后跳过项目音频和在线接口，直接使用设备语音。
 
 ### 单词练习
 
@@ -123,6 +123,8 @@ const searchIndex = await loadSearchIndex()
 ```text
 data/audio/type-1/catalog.json  -> dist/data/audio/type-1/catalog.json
 data/audio/type-1/files/        -> dist/data/audio/type-1/files/
+data/audio/type-2/catalog.json  -> dist/data/audio/type-2/catalog.json
+data/audio/type-2/files/        -> dist/data/audio/type-2/files/
 ```
 
 开发服务器通过相同的 `/StudyEnglish/data/audio/` 地址读取源音频，因此开发环境和 GitHub Pages 使用一致的播放路径。
@@ -271,7 +273,7 @@ pnpm run download:audio -- --only-failed
 pnpm run normalize:audio
 ```
 
-音频下载进度保存在 `data/audio/type-1/progress.json`，逐条结果记录在 `download-records.jsonl`，中断后可继续执行。
+英式和美式音频的下载进度分别保存在 `data/audio/type-1/progress.json`、`data/audio/type-2/progress.json`，逐条结果记录在各自目录的 `download-records.jsonl`，中断后可继续执行。
 
 ## 部署
 
@@ -290,6 +292,6 @@ pnpm run normalize:audio
 
 - 不要删除 `vite.config.js` 中的 `/StudyEnglish/` 基础路径，否则 GitHub Pages 资源会出现 404。
 - 不要一次性静态导入全部词库，这会显著增加首屏体积。
-- `data/audio/type-1/catalog.json` 和实际音频目录必须同时发布。
+- `data/audio/type-1`、`data/audio/type-2` 的 `catalog.json` 和实际音频目录必须同时发布。
 - 在线发音接口受网络和第三方服务状态影响，失败时会自动回退到设备语音。
 - 设备语音的效果取决于浏览器和操作系统安装的英语语音包。

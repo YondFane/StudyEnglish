@@ -120,20 +120,27 @@ async function fetchAudio(entry) {
       voice: `type-${audioType}`,
       url: `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(entry.term)}&type=${audioType}`,
     },
-    ...(audioType === 1 ? [{
-      provider: 'youdao',
-      voice: 'type-2-fallback',
-      url: `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(entry.term)}&type=2`,
-    }] : []),
-    {
-      provider: 'youdao',
-      voice: 'default-fallback',
-      url: `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(entry.term)}`,
-    },
+    ...(audioType === 1 ? [
+      {
+        provider: 'youdao',
+        voice: 'type-2-fallback',
+        url: `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(entry.term)}&type=2`,
+      },
+      {
+        provider: 'youdao',
+        voice: 'default-fallback',
+        url: `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(entry.term)}`,
+      },
+    ] : []),
     {
       provider: 'google-dictionary-static',
       voice: `${audioType === 1 ? 'en-GB' : 'en-US'}-fallback`,
       url: `https://ssl.gstatic.com/dictionary/static/sounds/20200429/${encodeURIComponent(entry.key)}--_${audioType === 1 ? 'gb' : 'us'}_1.mp3`,
+    },
+    {
+      provider: 'google-translate-tts',
+      voice: `${googleLanguage}-fallback`,
+      url: `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=gtx&tl=${googleLanguage}&q=${encodeURIComponent(entry.term)}`,
     },
     {
       provider: 'google-translate-tts',
@@ -239,6 +246,7 @@ await writeJson(catalogPath, {
   sources: [
     'https://dict.youdao.com/dictvoice',
     'https://ssl.gstatic.com/dictionary/static/sounds',
+    'https://translate.googleapis.com/translate_tts',
     'https://translate.google.com/translate_tts',
   ],
   total: catalog.length,
@@ -366,6 +374,30 @@ await saveProgress()
 await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(queue.length, 1)) }, worker))
 await journalWrite
 await saveProgress()
+
+const finalCatalog = collectedCatalog.map((entry) => {
+  const record = latestRecords.get(entry.key)
+  return record?.status === 'success' && record.file ? { ...entry, file: record.file } : entry
+})
+const finalCatalogFormats = finalCatalog.reduce((counts, entry) => {
+  const format = latestRecords.get(entry.key)?.format
+  if (format) counts[format] = (counts[format] ?? 0) + 1
+  return counts
+}, {})
+await writeJson(catalogPath, {
+  schemaVersion: 1,
+  audioType,
+  sources: [
+    'https://dict.youdao.com/dictvoice',
+    'https://ssl.gstatic.com/dictionary/static/sounds',
+    'https://translate.googleapis.com/translate_tts',
+    'https://translate.google.com/translate_tts',
+  ],
+  total: finalCatalog.length,
+  formats: finalCatalogFormats,
+  includedDatasets: includedDatasets.map(({ id, label, type }) => ({ id, label, type })),
+  entries: finalCatalog,
+})
 
 console.log(`Finished. successThisRun=${successThisRun} failedThisRun=${failedThisRun} stopped=${stopping}`)
 if (failedThisRun) process.exitCode = 2

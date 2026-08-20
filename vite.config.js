@@ -40,17 +40,19 @@ function publishProjectAudio() {
       await rm(resolve(outputRoot, 'assets'), { recursive: true, force: true })
     },
     async closeBundle() {
-      const sourceRoot = resolve(projectRoot, 'data/audio/type-1')
-      const destinationRoot = resolve(outputRoot, 'data/audio/type-1')
-      await mkdir(destinationRoot, { recursive: true })
-      await Promise.all([
-        copyFile(resolve(sourceRoot, 'catalog.json'), resolve(destinationRoot, 'catalog.json')),
-        cp(resolve(sourceRoot, 'files'), resolve(destinationRoot, 'files'), {
-          recursive: true,
-          force: false,
-          errorOnExist: false,
-        }),
-      ])
+      await Promise.all([1, 2].map(async (audioType) => {
+        const sourceRoot = resolve(projectRoot, `data/audio/type-${audioType}`)
+        const destinationRoot = resolve(outputRoot, `data/audio/type-${audioType}`)
+        await mkdir(destinationRoot, { recursive: true })
+        await Promise.all([
+          copyFile(resolve(sourceRoot, 'catalog.json'), resolve(destinationRoot, 'catalog.json')),
+          cp(resolve(sourceRoot, 'files'), resolve(destinationRoot, 'files'), {
+            recursive: true,
+            force: false,
+            errorOnExist: false,
+          }),
+        ])
+      }))
     },
   }
 }
